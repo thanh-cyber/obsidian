@@ -50,9 +50,10 @@ export const Dashboard = () => {
   const recentTrades = trades.slice(0, 5);
 
   return (
-    <div className="min-h-screen bg-background p-6">
+    <>
       <Navigation />
-      <div className="max-w-7xl mx-auto space-y-8">
+      <div className="min-h-screen bg-background pl-16 p-6">
+        <div className="max-w-7xl mx-auto space-y-8">
         {/* Header */}
         <div className="flex justify-between items-center">
           <div>
@@ -146,7 +147,8 @@ export const Dashboard = () => {
           onSubmit={handleAddTrade}
           editTrade={editingTrade}
         />
+        </div>
       </div>
-    </div>
+    </>
   );
 };

@@ -14,29 +14,33 @@ export const Navigation = () => {
   ];
 
   return (
-    <nav className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 md:top-6 md:right-6 md:left-auto md:translate-x-0">
-      <div className="bg-card/80 backdrop-blur-md border border-border/50 rounded-full p-2 shadow-lg flex gap-2">
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          const isActive = location.pathname === item.path;
-          return (
-            <Button
-              key={item.path}
-              variant={isActive ? "default" : "ghost"}
-              size="icon"
-              onClick={() => navigate(item.path)}
-              className={`rounded-full transition-all ${
-                isActive 
-                  ? "bg-primary text-primary-foreground shadow-lg shadow-primary/20" 
-                  : "hover:bg-secondary"
-              }`}
-              title={item.label}
-            >
-              <Icon className="h-5 w-5" />
-            </Button>
-          );
-        })}
+    <nav className="fixed left-0 top-0 h-screen w-16 bg-card/95 backdrop-blur-md border-r border-border z-50 flex flex-col items-center py-6 gap-4">
+      <div className="mb-4">
+        <div className="h-10 w-10 bg-gradient-to-br from-primary to-purple-500 rounded-lg flex items-center justify-center">
+          <span className="text-white font-bold text-sm">TJ</span>
+        </div>
       </div>
+      
+      {navItems.map((item) => {
+        const Icon = item.icon;
+        const isActive = location.pathname === item.path;
+        return (
+          <Button
+            key={item.path}
+            variant={isActive ? "default" : "ghost"}
+            size="icon"
+            onClick={() => navigate(item.path)}
+            className={`w-10 h-10 transition-all ${
+              isActive 
+                ? "bg-primary text-primary-foreground shadow-lg shadow-primary/20" 
+                : "hover:bg-secondary text-muted-foreground hover:text-foreground"
+            }`}
+            title={item.label}
+          >
+            <Icon className="h-5 w-5" />
+          </Button>
+        );
+      })}
     </nav>
   );
 };

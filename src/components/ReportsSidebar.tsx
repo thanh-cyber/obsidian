@@ -61,7 +61,7 @@ export const ReportsSidebar = ({ activeSection, activeItem, onItemClick }: Repor
   };
 
   return (
-    <div className="w-64 bg-card border-r border-border h-screen fixed left-0 top-0">
+    <div className="w-64 bg-card border-r border-border h-screen fixed left-16 top-0">
       <ScrollArea className="h-full">
         <div className="p-4 space-y-1">
           {sidebarSections.map((section) => {

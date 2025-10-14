@@ -58,7 +58,7 @@ export const Reports = () => {
         onItemClick={handleItemClick}
       />
       
-      <div className="ml-64 p-6">
+      <div className="ml-80 p-6">{/* ml-16 for nav + ml-64 for sidebar = ml-80 */}
         {/* Header */}
         <div className="mb-6 flex items-center justify-between">
           <div>

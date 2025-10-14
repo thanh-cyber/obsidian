@@ -63,9 +63,10 @@ export const Settings = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background p-6">
+    <>
       <Navigation />
-      <div className="max-w-4xl mx-auto space-y-8">
+      <div className="min-h-screen bg-background pl-16 p-6">
+        <div className="max-w-4xl mx-auto space-y-8">
         {/* Header */}
         <div className="flex items-center gap-4">
           <Button
@@ -215,7 +216,8 @@ export const Settings = () => {
             </div>
           </CardContent>
         </Card>
+        </div>
       </div>
-    </div>
+    </>
   );
 };

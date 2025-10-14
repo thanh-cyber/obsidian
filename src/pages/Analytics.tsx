@@ -78,9 +78,10 @@ export const Analytics = () => {
   }, [] as any[]);
 
   return (
-    <div className="min-h-screen bg-background p-6">
+    <>
       <Navigation />
-      <div className="max-w-7xl mx-auto space-y-8">
+      <div className="min-h-screen bg-background pl-16 p-6">
+        <div className="max-w-7xl mx-auto space-y-8">
         {/* Header */}
         <div className="flex items-center gap-4">
           <Button
@@ -288,7 +289,8 @@ export const Analytics = () => {
             </div>
           </CardContent>
         </Card>
+        </div>
       </div>
-    </div>
+    </>
   );
 };
