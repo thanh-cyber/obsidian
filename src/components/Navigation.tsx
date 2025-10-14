@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { BarChart3, Settings as SettingsIcon, LayoutDashboard } from "lucide-react";
+import { BarChart3, Settings as SettingsIcon, LayoutDashboard, FileText } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
 
 export const Navigation = () => {
@@ -9,6 +9,7 @@ export const Navigation = () => {
   const navItems = [
     { path: "/", icon: LayoutDashboard, label: "Dashboard" },
     { path: "/analytics", icon: BarChart3, label: "Analytics" },
+    { path: "/reports", icon: FileText, label: "Reports" },
     { path: "/settings", icon: SettingsIcon, label: "Settings" },
   ];
 
