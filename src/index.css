@@ -8,56 +8,60 @@ All colors MUST be HSL.
 
 @layer base {
   :root {
-    --background: 210 30% 8%;
-    --foreground: 210 40% 98%;
+    /* Monochrome palette: #000000, #0E0E0E, #0F0F0F, radial grays */
+    --background: 0 0% 0%;
+    --foreground: 0 0% 94%;
 
-    --card: 210 25% 10%;
-    --card-foreground: 210 40% 98%;
+    --card: 0 0% 5.5%;
+    --card-foreground: 0 0% 94%;
 
-    --popover: 210 30% 12%;
-    --popover-foreground: 210 40% 98%;
+    --popover: 0 0% 5.9%;
+    --popover-foreground: 0 0% 94%;
 
-    --primary: 189 94% 43%;
-    --primary-foreground: 210 40% 98%;
+    --primary: 0 0% 75%;
+    --primary-foreground: 0 0% 0%;
 
-    --secondary: 210 20% 16%;
-    --secondary-foreground: 210 40% 98%;
+    --secondary: 0 0% 5.5%;
+    --secondary-foreground: 0 0% 94%;
 
-    --muted: 210 20% 20%;
-    --muted-foreground: 210 20% 60%;
+    --muted: 0 0% 8%;
+    --muted-foreground: 0 0% 55%;
 
-    --accent: 189 94% 43%;
-    --accent-foreground: 210 40% 98%;
+    --accent: 0 0% 12%;
+    --accent-foreground: 0 0% 94%;
 
+    /* KEEP: losses — red */
     --destructive: 0 72% 51%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive-foreground: 0 0% 98%;
 
+    /* KEEP: profit/wins — green */
     --success: 142 76% 36%;
-    --success-foreground: 210 40% 98%;
+    --success-foreground: 0 0% 98%;
 
-    --border: 210 20% 18%;
-    --input: 210 20% 18%;
-    --ring: 189 94% 43%;
+    --border: 0 0% 12%;
+    --input: 0 0% 12%;
+    --ring: 0 0% 55%;
 
     --radius: 0.75rem;
 
-    --chart-1: 189 94% 43%;
+    --chart-1: 0 0% 55%;
     --chart-2: 142 76% 36%;
     --chart-3: 0 72% 51%;
-    --chart-4: 47 96% 53%;
-    --chart-5: 280 67% 55%;
+    --chart-4: 0 0% 45%;
+    --chart-5: 0 0% 65%;
 
-    --gradient-primary: linear-gradient(135deg, hsl(189 94% 43% / 0.15) 0%, hsl(280 67% 55% / 0.05) 100%);
-    --gradient-card: linear-gradient(135deg, hsl(210 25% 12% / 0.8) 0%, hsl(210 25% 10% / 0.9) 100%);
-    
-    --sidebar-background: 210 30% 8%;
-    --sidebar-foreground: 210 20% 60%;
-    --sidebar-primary: 189 94% 43%;
-    --sidebar-primary-foreground: 210 40% 98%;
-    --sidebar-accent: 210 20% 16%;
-    --sidebar-accent-foreground: 210 40% 98%;
-    --sidebar-border: 210 20% 18%;
-    --sidebar-ring: 189 94% 43%;
+    --gradient-primary: radial-gradient(ellipse at center, hsl(0 0% 20% / 0.4) 0%, hsl(0 0% 5% / 0.8) 100%);
+    --gradient-card: radial-gradient(ellipse at top, hsl(0 0% 6% / 0.95) 0%, hsl(0 0% 4% / 0.98) 100%);
+    --gradient-logo: linear-gradient(135deg, hsl(0 0% 70%) 0%, hsl(0 0% 55%) 100%);
+
+    --sidebar-background: 0 0% 0%;
+    --sidebar-foreground: 0 0% 55%;
+    --sidebar-primary: 0 0% 75%;
+    --sidebar-primary-foreground: 0 0% 0%;
+    --sidebar-accent: 0 0% 5.5%;
+    --sidebar-accent-foreground: 0 0% 94%;
+    --sidebar-border: 0 0% 12%;
+    --sidebar-ring: 0 0% 55%;
   }
 }
 
@@ -68,5 +72,6 @@ All colors MUST be HSL.
 
   body {
     @apply bg-background text-foreground;
+    font-family: "Montserrat", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
   }
 }

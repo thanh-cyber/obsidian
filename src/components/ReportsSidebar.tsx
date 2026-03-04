@@ -1,12 +1,12 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight, TrendingUp, Calendar, Camera, BarChart2, Activity, GitCompare, Clock, DollarSign, Package, Tag, Target, LineChart, PieChart } from "lucide-react";
+import { ChevronDown, ChevronRight, PanelLeftClose, PanelLeft, TrendingUp, Calendar, Camera, BarChart2, Activity, GitCompare, Clock, DollarSign, Package, Tag, Target, LineChart, PieChart } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 
 interface SidebarSection {
   title: string;
-  icon: any;
+  icon: React.ComponentType<{ className?: string }>;
   items: string[];
 }
 
@@ -14,7 +14,7 @@ const sidebarSections: SidebarSection[] = [
   {
     title: "PERFORMANCE",
     icon: TrendingUp,
-    items: ["Overview", "Calendar", "Snapshot", "Evaluator", "Simulator", "Drawdown", "Comparative"],
+    items: ["Overview", "Analytics"],
   },
   {
     title: "TRADE",
@@ -47,9 +47,11 @@ interface ReportsSidebarProps {
   activeSection: string;
   activeItem: string;
   onItemClick: (section: string, item: string) => void;
+  collapsed?: boolean;
+  onCollapsedChange?: (collapsed: boolean) => void;
 }
 
-export const ReportsSidebar = ({ activeSection, activeItem, onItemClick }: ReportsSidebarProps) => {
+export const ReportsSidebar = ({ activeSection, activeItem, onItemClick, collapsed = false, onCollapsedChange }: ReportsSidebarProps) => {
   const [expandedSections, setExpandedSections] = useState<string[]>(["PERFORMANCE"]);
 
   const toggleSection = (section: string) => {
@@ -61,7 +63,26 @@ export const ReportsSidebar = ({ activeSection, activeItem, onItemClick }: Repor
   };
 
   return (
-    <div className="w-64 bg-card border-r border-border h-screen fixed left-16 top-0">
+    <>
+      {collapsed && (
+        <Button
+          variant="outline"
+          size="icon"
+          className="fixed left-20 top-6 h-9 w-9 z-50 bg-card border-border shadow-md hover:bg-secondary"
+          onClick={() => onCollapsedChange?.(false)}
+          title="Open reports menu"
+        >
+          <PanelLeft className="h-4 w-4" />
+        </Button>
+      )}
+      {!collapsed && (
+        <>
+        <div
+          className="fixed inset-0 bg-black/50 z-40"
+          aria-hidden
+          onClick={() => onCollapsedChange?.(true)}
+        />
+        <div className="w-64 bg-card border-r border-border h-screen fixed left-16 top-0 z-50 shadow-xl">
       <ScrollArea className="h-full">
         <div className="p-4 space-y-1">
           {sidebarSections.map((section) => {
@@ -112,7 +133,19 @@ export const ReportsSidebar = ({ activeSection, activeItem, onItemClick }: Repor
             );
           })}
         </div>
-      </ScrollArea>
-    </div>
+        </ScrollArea>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="absolute -right-3 top-6 h-6 w-6 rounded-full border border-border bg-card shadow hover:bg-secondary z-10"
+          onClick={() => onCollapsedChange?.(true)}
+          title="Close sidebar"
+        >
+          <PanelLeftClose className="h-3 w-3" />
+        </Button>
+      </div>
+        </>
+      )}
+    </>
   );
 };

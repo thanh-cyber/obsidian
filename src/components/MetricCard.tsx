@@ -10,9 +10,8 @@ interface MetricCardProps {
 }
 
 export const MetricCard = ({ title, value, data, trend = "neutral", format = "currency" }: MetricCardProps) => {
-  // Generate sample data if none provided
-  const chartData = data || Array.from({ length: 20 }, () => Math.random() * 100);
-  const formattedData = chartData.map((value, index) => ({ index, value }));
+  const chartData = data ?? [];
+  const formattedData = chartData.length > 0 ? chartData.map((v, i) => ({ index: i, value: v })) : [];
 
   const lineColor = 
     trend === "up" ? "hsl(var(--success))" :
@@ -43,6 +42,7 @@ export const MetricCard = ({ title, value, data, trend = "neutral", format = "cu
         )}>
           {formatValue(value)}
         </div>
+        {formattedData.length > 0 && (
         <div className="h-10 -mx-2">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={formattedData}>
@@ -56,6 +56,7 @@ export const MetricCard = ({ title, value, data, trend = "neutral", format = "cu
             </LineChart>
           </ResponsiveContainer>
         </div>
+        )}
       </CardContent>
     </Card>
   );

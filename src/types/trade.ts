@@ -1,3 +1,14 @@
+/** Individual execution (fill) within a trade */
+export interface TradeExecution {
+  dateTime: string;  // ISO string
+  qty: number;       // signed: +buy, -sell
+  price: number;
+  position: number;  // cumulative position after this fill
+  fees?: number;
+  /** Optional broker execution identifier for dedupe/debug */
+  execId?: string;
+}
+
 export interface Trade {
   id: string;
   symbol: string;
@@ -14,6 +25,14 @@ export interface Trade {
   pnl: number;
   pnlPercentage: number;
   duration: number; // in minutes
+  /** Number of fills/executions that comprise this trade (from CSV import) */
+  executions?: number;
+  /** Individual executions when available (from CSV import) */
+  executionsList?: TradeExecution[];
+  /** Optional provenance (e.g. auto-imported from broker) */
+  source?: "csv" | "manual" | "ibkr";
+  /** Optional broker account id */
+  account?: string;
 }
 
 export type StrategyTag = 

@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TradeX Chart Test</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #fff;
+        }
+        #chart-container {
+            width: 800px;
+            height: 600px;
+            margin: 0 auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>TradeX Chart Test</h1>
+    <div id="chart-container"></div>
+    
+    <script type="module">
+        // Import TradeX-chart
+        import TX from 'https://unpkg.com/tradex-chart@latest/dist/tradex-chart.es.js';
+        
+        // Sample OHLCV data
+        const data = [
+            [1633024800000, 43500, 43600, 43400, 43550, 100],
+            [1633024860000, 43550, 43650, 43500, 43600, 120],
+            [1633024920000, 43600, 43700, 43550, 43650, 110],
+            [1633024980000, 43650, 43750, 43600, 43700, 130],
+            [1633025040000, 43700, 43800, 43650, 43750, 115],
+        ];
+        
+        // Configuration
+        const config = {
+            id: 'test-chart',
+            title: 'BTC/USDT',
+            width: 800,
+            height: 600,
+            timeFrame: '1m',
+            rangeLimit: 50,
+            theme: {
+                chart: {
+                    Background: '#141414',
+                    TextColour: '#ccc',
+                    GridColour: '#333'
+                },
+                candle: {
+                    Type: 'candle_solid',
+                    UpBodyColour: '#00F04088',
+                    DnBodyColour: '#F0004088'
+                }
+            }
+        };
+        
+        // Create chart element
+        const container = document.getElementById('chart-container');
+        const chart = document.createElement('tradex-chart');
+        container.appendChild(chart);
+        
+        // Initialize chart
+        setTimeout(() => {
+            if (chart.start) {
+                console.log('Starting chart with config:', config);
+                chart.start(config);
+                
+                // Load data
+                setTimeout(() => {
+                    if (chart.mergeData) {
+                        console.log('Merging data...');
+                        chart.mergeData({ ohlcv: data }, true, true);
+                    }
+                }, 500);
+            } else {
+                console.error('Chart API not available');
+            }
+        }, 1000);
+    </script>
+</body>
+</html>
+

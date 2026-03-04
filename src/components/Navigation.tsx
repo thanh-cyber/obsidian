@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { BarChart3, Settings as SettingsIcon, LayoutDashboard, FileText } from "lucide-react";
+import { Settings as SettingsIcon, LayoutDashboard, FileText, Play, LineChart } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
 
 export const Navigation = () => {
@@ -8,16 +8,21 @@ export const Navigation = () => {
 
   const navItems = [
     { path: "/", icon: LayoutDashboard, label: "Dashboard" },
-    { path: "/analytics", icon: BarChart3, label: "Analytics" },
     { path: "/reports", icon: FileText, label: "Reports" },
+    { path: "/trades", icon: LineChart, label: "Trades" },
+    { path: "/replay", icon: Play, label: "Replay" },
     { path: "/settings", icon: SettingsIcon, label: "Settings" },
   ];
 
   return (
-    <nav className="fixed left-0 top-0 h-screen w-16 bg-card/95 backdrop-blur-md border-r border-border z-50 flex flex-col items-center py-6 gap-4">
+    <nav className="fixed left-0 top-0 h-screen w-16 bg-black/95 backdrop-blur-md border-r border-border z-50 flex flex-col items-center py-6 gap-4">
       <div className="mb-4">
-        <div className="h-10 w-10 bg-gradient-to-br from-primary to-purple-500 rounded-lg flex items-center justify-center">
-          <span className="text-white font-bold text-sm">TJ</span>
+        <div className="h-10 w-10 rounded-lg flex items-center justify-center ring-1 ring-white/10 overflow-hidden bg-transparent">
+          <img
+            src="/obsidian-logo.png"
+            alt="Obsidian"
+            className="h-10 w-10 object-contain"
+          />
         </div>
       </div>
       
@@ -32,7 +37,7 @@ export const Navigation = () => {
             onClick={() => navigate(item.path)}
             className={`w-10 h-10 transition-all ${
               isActive 
-                ? "bg-primary text-primary-foreground shadow-lg shadow-primary/20" 
+                ? "bg-primary text-primary-foreground shadow-lg shadow-[0_0_12px_hsl(0_0%_50%/0.25)]" 
                 : "hover:bg-secondary text-muted-foreground hover:text-foreground"
             }`}
             title={item.label}

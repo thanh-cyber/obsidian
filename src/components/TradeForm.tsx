@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -64,6 +64,40 @@ export const TradeForm = ({ open, onOpenChange, onSubmit, editTrade }: TradeForm
     },
   });
 
+  useEffect(() => {
+    if (open) {
+      if (editTrade) {
+        form.reset({
+          symbol: editTrade.symbol,
+          entryDate: editTrade.entryDate,
+          entryPrice: editTrade.entryPrice.toString(),
+          exitDate: editTrade.exitDate,
+          exitPrice: editTrade.exitPrice.toString(),
+          positionSize: editTrade.positionSize.toString(),
+          strategyTag: editTrade.strategyTag ?? "",
+          emotionalNotes: editTrade.emotionalNotes || "",
+          riskPercentage: editTrade.riskPercentage?.toString() || "",
+          stopLoss: editTrade.stopLoss?.toString() || "",
+          takeProfit: editTrade.takeProfit?.toString() || "",
+        });
+      } else {
+        form.reset({
+          symbol: "",
+          entryDate: "",
+          entryPrice: "",
+          exitDate: "",
+          exitPrice: "",
+          positionSize: "",
+          strategyTag: "",
+          emotionalNotes: "",
+          riskPercentage: "",
+          stopLoss: "",
+          takeProfit: "",
+        });
+      }
+    }
+  }, [open, editTrade?.id]);
+
   const handleSubmit = (values: z.infer<typeof formSchema>) => {
     const entryPrice = parseFloat(values.entryPrice);
     const exitPrice = parseFloat(values.exitPrice);
@@ -81,13 +115,16 @@ export const TradeForm = ({ open, onOpenChange, onSubmit, editTrade }: TradeForm
       exitPrice,
       positionSize,
       strategyTag: values.strategyTag,
-      emotionalNotes: values.emotionalNotes,
+      emotionalNotes: values.emotionalNotes || undefined,
       riskPercentage: values.riskPercentage ? parseFloat(values.riskPercentage) : undefined,
       stopLoss: values.stopLoss ? parseFloat(values.stopLoss) : undefined,
       takeProfit: values.takeProfit ? parseFloat(values.takeProfit) : undefined,
       pnl,
       pnlPercentage,
       duration,
+      // Preserve execution details so "All fills" and Executions table show all fills
+      ...(editTrade?.executions != null && { executions: editTrade.executions }),
+      ...(editTrade?.executionsList != null && editTrade.executionsList.length > 0 && { executionsList: editTrade.executionsList }),
     };
 
     onSubmit(trade);
@@ -123,7 +160,7 @@ export const TradeForm = ({ open, onOpenChange, onSubmit, editTrade }: TradeForm
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Strategy</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger className="bg-secondary border-border">
                           <SelectValue placeholder="Select strategy" />

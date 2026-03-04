@@ -20,7 +20,7 @@ export const TradeList = ({ trades, onEdit, onDelete }: TradeListProps) => {
   const filteredTrades = trades
     .filter(trade => 
       trade.symbol.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      trade.strategyTag.toLowerCase().includes(searchTerm.toLowerCase())
+      (trade.strategyTag ?? "").toLowerCase().includes(searchTerm.toLowerCase())
     )
     .sort((a, b) => {
       const aValue = a[sortField];

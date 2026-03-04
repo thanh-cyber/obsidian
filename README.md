@@ -60,6 +60,13 @@ This project is built with:
 - shadcn-ui
 - Tailwind CSS
 
+## Interactive Brokers (IBKR) auto-import
+
+This repo includes a local bridge service at `ibkr-bridge/` that connects to **TWS / IB Gateway** and streams **completed trades** into the app.
+
+- Bridge docs: `ibkr-bridge/README.md`
+- App UI: **Settings → Interactive Brokers (IBKR) Sync**
+
 ## How can I deploy this project?
 
 Simply open [Lovable](https://lovable.dev/projects/a5ad3691-4f60-4af1-a779-a7a67852e427) and click on Share -> Publish.

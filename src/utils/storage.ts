@@ -1,4 +1,6 @@
 import { Trade } from "@/types/trade";
+import { parseTradeHistoryCSV } from "./csvParser";
+import { loadImportSettings } from "./importSettings";
 
 const STORAGE_KEY = "tradelog_trades";
 
@@ -46,21 +48,26 @@ export const exportTradesCSV = (trades: Trade[]): void => {
     "Notes"
   ];
   
+  const escape = (val: string | number) => {
+    const s = String(val);
+    return s.includes(",") || s.includes('"') || s.includes("\n") ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+
   const rows = trades.map(t => [
-    t.symbol,
+    escape(t.symbol),
     t.entryDate,
     t.entryPrice,
     t.exitDate,
     t.exitPrice,
     t.positionSize,
-    t.strategyTag,
+    escape(t.strategyTag ?? ""),
     t.pnl.toFixed(2),
-    t.pnlPercentage.toFixed(2),
-    t.duration,
-    t.emotionalNotes || ""
+    (t.pnlPercentage ?? 0).toFixed(2),
+    t.duration ?? 0,
+    escape(t.emotionalNotes || "")
   ]);
 
-  const csv = [headers, ...rows].map(row => row.join(",")).join("\n");
+  const csv = [headers.join(","), ...rows.map(row => row.join(","))].join("\n");
   const blob = new Blob([csv], { type: "text/csv" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -72,16 +79,49 @@ export const exportTradesCSV = (trades: Trade[]): void => {
 
 export const importTrades = (file: File, onSuccess: (trades: Trade[]) => void, onError: (error: string) => void): void => {
   const reader = new FileReader();
+  const ext = file.name.toLowerCase().split(".").pop();
   reader.onload = (e) => {
     try {
-      const data = JSON.parse(e.target?.result as string);
-      if (Array.isArray(data)) {
-        onSuccess(data);
+      const text = e.target?.result as string;
+
+      if (ext === "csv") {
+        const settings = loadImportSettings();
+        const trades = parseTradeHistoryCSV(text, settings);
+        if (trades.length === 0) {
+          onError("No valid trades found in CSV. Check column format.");
+        } else {
+          onSuccess(trades);
+        }
       } else {
-        onError("Invalid file format");
+        const data = JSON.parse(text);
+        if (!Array.isArray(data)) {
+          onError("Invalid JSON format");
+          return;
+        }
+        // Basic validation: require id, symbol, pnl, exitDate; ensure pnlPercentage, duration, strategyTag
+        const valid = data
+          .filter(
+            (t: unknown) =>
+              t &&
+              typeof t === "object" &&
+              "id" in t &&
+              "symbol" in t &&
+              typeof (t as Trade).pnl === "number" &&
+              (t as Trade).exitDate
+          )
+          .map((t: unknown) => {
+            const trade = t as Trade;
+            return {
+              ...trade,
+              pnlPercentage: typeof trade.pnlPercentage === "number" ? trade.pnlPercentage : 0,
+              duration: typeof trade.duration === "number" ? trade.duration : 0,
+              strategyTag: trade.strategyTag ?? "Other",
+            };
+          });
+        onSuccess(valid as Trade[]);
       }
-    } catch (error) {
-      onError("Error parsing file");
+    } catch {
+      onError(ext === "csv" ? "Error parsing CSV" : "Error parsing JSON");
     }
   };
   reader.onerror = () => onError("Error reading file");
