@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight, PanelLeftClose, PanelLeft, TrendingUp, Calendar, Camera, BarChart2, Activity, GitCompare, Clock, DollarSign, Package, Tag, Target, LineChart, PieChart } from "lucide-react";
+import { ChevronDown, ChevronRight, PanelLeftClose, PanelLeft, TrendingUp, BarChart2, Activity, Target, LineChart, PieChart, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
@@ -17,6 +17,11 @@ const sidebarSections: SidebarSection[] = [
     items: ["Overview", "Analytics"],
   },
   {
+    title: "AI",
+    icon: Sparkles,
+    items: ["AI Analytic Dive"],
+  },
+  {
     title: "TRADE",
     icon: Activity,
     items: ["Hourly", "Weekday", "Month", "Year", "Entry Price", "Cost", "Volume", "Side", "Hold Time"],
@@ -24,7 +29,7 @@ const sidebarSections: SidebarSection[] = [
   {
     title: "EXIT STATS",
     icon: Target,
-    items: ["RFE/MAE", "Rolling Exit"],
+    items: ["MFE/MAE", "Rolling Exit"],
   },
   {
     title: "MARKET",
@@ -52,7 +57,7 @@ interface ReportsSidebarProps {
 }
 
 export const ReportsSidebar = ({ activeSection, activeItem, onItemClick, collapsed = false, onCollapsedChange }: ReportsSidebarProps) => {
-  const [expandedSections, setExpandedSections] = useState<string[]>(["PERFORMANCE"]);
+  const [expandedSections, setExpandedSections] = useState<string[]>(["PERFORMANCE", "AI"]);
 
   const toggleSection = (section: string) => {
     setExpandedSections(prev =>

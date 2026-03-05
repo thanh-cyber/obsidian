@@ -33,6 +33,14 @@ export interface Trade {
   source?: "csv" | "manual" | "ibkr";
   /** Optional broker account id */
   account?: string;
+  /** SPY opening gap $ (prior close → open) on trade date; from Yahoo Finance */
+  spyOpeningGapDollars?: number;
+  /** SPY opening gap % on trade date */
+  spyOpeningGapPercent?: number;
+  /** SPX (^GSPC) opening gap $ on trade date */
+  spxOpeningGapDollars?: number;
+  /** SPX opening gap % on trade date */
+  spxOpeningGapPercent?: number;
 }
 
 export type StrategyTag = 

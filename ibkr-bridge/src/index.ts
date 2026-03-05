@@ -5,6 +5,7 @@ import type { WebSocket } from 'ws';
 import { z } from 'zod';
 import { IbkrClient, loadIbkrConfig } from './ibkrClient.js';
 import { TradeBuilder } from './tradeBuilder.js';
+import { getYahooGapForDate } from './yahooGap.js';
 import type { BridgeMessage, IbkrBridgeStatus } from './types.js';
 
 const ServerEnvSchema = z.object({
@@ -57,6 +58,28 @@ const server = http.createServer((req, res) => {
     const trades = builder.getCompleted();
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true, trades }));
+    return;
+  }
+
+  if (req.url?.startsWith('/api/yahoo-gap')) {
+    const url = new URL(req.url, `http://${req.headers.host ?? 'localhost'}`);
+    const dateStr = url.searchParams.get('date');
+    if (dateStr && /^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      getYahooGapForDate(dateStr)
+        .then((result) => {
+          if (res.writableEnded) return;
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true, ...result }));
+        })
+        .catch((err) => {
+          if (res.writableEnded) return;
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: String(err?.message ?? err) }));
+        });
+      return;
+    }
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: false, error: 'Missing or invalid date (YYYY-MM-DD)' }));
     return;
   }
 

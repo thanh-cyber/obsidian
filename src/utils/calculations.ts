@@ -1,4 +1,40 @@
 import { Trade, TradeStats } from "@/types/trade";
+import { getAppDateKey } from "@/utils/appDateTime";
+
+/** MFE = max favorable excursion ($), MAE = max adverse excursion ($). From executions when available. */
+export function getTradeMfeMae(trade: Trade): { mfe: number; mae: number } {
+  const list = trade.executionsList;
+  if (!list?.length) {
+    const pnl = Number(trade.pnl) || 0;
+    return {
+      mfe: pnl > 0 ? pnl : 0,
+      mae: pnl < 0 ? pnl : 0,
+    };
+  }
+  const sorted = [...list].sort(
+    (a, b) => new Date(a.dateTime).getTime() - new Date(b.dateTime).getTime()
+  );
+  let position = 0;
+  let cost = 0;
+  let maxUnrealized = -Infinity;
+  let minUnrealized = Infinity;
+  for (const e of sorted) {
+    const qty = Number(e.qty) || 0;
+    const price = Number(e.price) || 0;
+    position += qty;
+    cost += price * qty;
+    if (position !== 0) {
+      const avgEntry = cost / position;
+      const unrealized = (price - avgEntry) * position;
+      if (unrealized > maxUnrealized) maxUnrealized = unrealized;
+      if (unrealized < minUnrealized) minUnrealized = unrealized;
+    }
+  }
+  return {
+    mfe: Number.isFinite(maxUnrealized) && maxUnrealized > 0 ? maxUnrealized : 0,
+    mae: Number.isFinite(minUnrealized) && minUnrealized < 0 ? minUnrealized : 0,
+  };
+}
 
 export const calculatePnL = (
   entryPrice: number,
@@ -76,8 +112,7 @@ export const getDailyPnL = (trades: Trade[]): Map<string, number> => {
   const dailyPnL = new Map<string, number>();
 
   trades.forEach((trade) => {
-    const date = new Date(trade.exitDate);
-    const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+    const dateKey = getAppDateKey(new Date(trade.exitDate));
     const current = dailyPnL.get(dateKey) ?? 0;
     dailyPnL.set(dateKey, current + trade.pnl);
   });
@@ -91,12 +126,63 @@ export const getDailyPnL = (trades: Trade[]): Map<string, number> => {
 export const getDailyTradeCount = (trades: Trade[]): Map<string, number> => {
   const dailyCount = new Map<string, number>();
   trades.forEach((trade) => {
-    const date = new Date(trade.exitDate);
-    const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+    const dateKey = getAppDateKey(new Date(trade.exitDate));
     dailyCount.set(dateKey, (dailyCount.get(dateKey) ?? 0) + 1);
   });
   return dailyCount;
 };
+
+export interface DailyDayStats {
+  returnDollar: number;
+  commissions: number;
+  returnNet: number;
+  trades: number;
+  mfe: number;
+  mae: number;
+  winPct: number;
+  profitFactor: number;
+}
+
+/**
+ * Per-day stats (exit date in ET). Use for journal day list.
+ */
+export function getDailyStats(trades: Trade[]): Map<string, DailyDayStats> {
+  const byDate = new Map<string, Trade[]>();
+  trades.forEach((trade) => {
+    const dateKey = getAppDateKey(new Date(trade.exitDate));
+    const list = byDate.get(dateKey) ?? [];
+    list.push(trade);
+    byDate.set(dateKey, list);
+  });
+  const result = new Map<string, DailyDayStats>();
+  byDate.forEach((dayTrades, dateKey) => {
+    const returnDollar = dayTrades.reduce((s, t) => s + t.pnl, 0);
+    const commissions = dayTrades.reduce((s, t) => s + getTradeFee(t), 0);
+    const wins = dayTrades.filter((t) => t.pnl > 0).length;
+    const winPct = dayTrades.length > 0 ? (wins / dayTrades.length) * 100 : 0;
+    const grossWins = dayTrades.filter((t) => t.pnl > 0).reduce((s, t) => s + t.pnl, 0);
+    const grossLosses = dayTrades.filter((t) => t.pnl < 0).reduce((s, t) => s + -t.pnl, 0);
+    const profitFactor = grossLosses > 0 ? grossWins / grossLosses : grossWins > 0 ? Infinity : 0;
+    let mfe = 0;
+    let mae = 0;
+    dayTrades.forEach((t) => {
+      const { mfe: tmfe, mae: tmae } = getTradeMfeMae(t);
+      mfe += tmfe;
+      mae += tmae;
+    });
+    result.set(dateKey, {
+      returnDollar,
+      commissions,
+      returnNet: returnDollar - commissions,
+      trades: dayTrades.length,
+      mfe,
+      mae,
+      winPct,
+      profitFactor,
+    });
+  });
+  return result;
+}
 
 /** Per-trade fee from executionsList. Returns 0 if no executions. */
 function getTradeFee(trade: Trade): number {

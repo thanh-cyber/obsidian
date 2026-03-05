@@ -14,6 +14,7 @@ import {
   setIbkrBridgeUrl,
   testIbkrBridge,
 } from "@/utils/ibkrBridge";
+import { enrichTradesWithGapData } from "@/utils/yahooGap";
 import { Trade } from "@/types/trade";
 import { toast } from "sonner";
 import {
@@ -44,6 +45,8 @@ export const Settings = () => {
   const [ibkrAutoSync, setIbkrAutoSyncState] = useState<boolean>(() => getIbkrAutoSyncEnabled());
   const [ibkrTestStatus, setIbkrTestStatus] = useState<string>("");
   const [ibkrTesting, setIbkrTesting] = useState(false);
+  const [gapLoading, setGapLoading] = useState(false);
+  const [gapStatus, setGapStatus] = useState<string>("");
 
   useEffect(() => {
     setTrades(loadTrades());
@@ -106,6 +109,30 @@ export const Settings = () => {
       toast.error(e instanceof Error ? e.message : "IBKR bridge test failed");
     } finally {
       setIbkrTesting(false);
+    }
+  };
+
+  const handleFetchGapData = async () => {
+    if (trades.length === 0) {
+      toast.error("No trades to enrich");
+      return;
+    }
+    setGapLoading(true);
+    setGapStatus("");
+    try {
+      const enriched = await enrichTradesWithGapData(
+        trades,
+        ibkrBridgeUrl,
+        (done, total, date) => setGapStatus(total ? `${done}/${total} ${date || ""}` : "")
+      );
+      saveTrades(enriched);
+      setTrades(enriched);
+      toast.success("SPY/SPX gap data fetched and saved");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to fetch gap data");
+    } finally {
+      setGapLoading(false);
+      setGapStatus("");
     }
   };
 
@@ -265,6 +292,25 @@ export const Settings = () => {
                     />
                   </div>
                 </div>
+              </div>
+            </div>
+
+            {/* SPY / SPX gap data (Yahoo Finance via bridge) */}
+            <div className="space-y-3 pt-4 border-t border-border">
+              <Label className="text-base font-semibold">SPY / SPX opening gap data</Label>
+              <p className="text-sm text-muted-foreground">
+                Fetch opening gap $ and % for each trade date from Yahoo Finance. Uses the same bridge URL above; the bridge must be running (e.g. <code className="text-xs bg-muted px-1 rounded">npm run dev</code> in <code className="text-xs bg-muted px-1 rounded">ibkr-bridge</code>). Then you can filter by SPY/SPX gap in Custom Tags.
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={handleFetchGapData}
+                  disabled={gapLoading || trades.length === 0}
+                >
+                  {gapLoading ? "Fetching…" : "Fetch gap data for all trades"}
+                </Button>
+                {gapStatus && <span className="text-xs text-muted-foreground">{gapStatus}</span>}
               </div>
             </div>
 

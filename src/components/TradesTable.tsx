@@ -11,7 +11,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { format } from "date-fns";
+import { formatAppDate } from "@/utils/appDateTime";
 
 interface TradesTableProps {
   trades: Trade[];
@@ -158,7 +158,7 @@ export const TradesTable = ({ trades, selectedIds, onSelectionChange, onTradeCli
                   />
                 </TableCell>
                 <TableCell className="px-3 py-2.5 text-sm text-foreground whitespace-nowrap">
-                  {format(new Date(trade.exitDate), "d MMM yyyy")}
+                  {formatAppDate(new Date(trade.exitDate))}
                 </TableCell>
                 <TableCell className="px-3 py-2.5 text-sm font-medium text-foreground">
                   {trade.symbol}

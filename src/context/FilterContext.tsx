@@ -7,6 +7,70 @@ import {
   type ReactNode,
 } from "react";
 import { Trade } from "@/types/trade";
+import { getAppDateKey, getAppDateParts, getTodayAppDateKey, getPreviousAppDateKey } from "@/utils/appDateTime";
+import { getTradeMfeMae } from "@/utils/calculations";
+
+export interface CustomTagFilters {
+  years: string[];
+  months: string[];
+  days: string[];
+  hours: string[];
+  holdTimeMin: number | null;
+  holdTimeMax: number | null;
+  entryPriceMin: number | null;
+  entryPriceMax: number | null;
+  volumeMin: number | null;
+  volumeMax: number | null;
+  changePercentMin: number | null;
+  changePercentMax: number | null;
+  positionMaeMin: number | null;
+  positionMaeMax: number | null;
+  positionMfeMin: number | null;
+  positionMfeMax: number | null;
+  bestExitPnlMin: number | null;
+  bestExitPnlMax: number | null;
+  bestExitPctMin: number | null;
+  bestExitPctMax: number | null;
+  spyGapDollarsMin: number | null;
+  spyGapDollarsMax: number | null;
+  spyGapPercentMin: number | null;
+  spyGapPercentMax: number | null;
+  spxGapDollarsMin: number | null;
+  spxGapDollarsMax: number | null;
+  spxGapPercentMin: number | null;
+  spxGapPercentMax: number | null;
+}
+
+const defaultCustomTagFilters: CustomTagFilters = {
+  years: [],
+  months: [],
+  days: [],
+  hours: [],
+  holdTimeMin: null,
+  holdTimeMax: null,
+  entryPriceMin: null,
+  entryPriceMax: null,
+  volumeMin: null,
+  volumeMax: null,
+  changePercentMin: null,
+  changePercentMax: null,
+  positionMaeMin: null,
+  positionMaeMax: null,
+  positionMfeMin: null,
+  positionMfeMax: null,
+  bestExitPnlMin: null,
+  bestExitPnlMax: null,
+  bestExitPctMin: null,
+  bestExitPctMax: null,
+  spyGapDollarsMin: null,
+  spyGapDollarsMax: null,
+  spyGapPercentMin: null,
+  spyGapPercentMax: null,
+  spxGapDollarsMin: null,
+  spxGapDollarsMax: null,
+  spxGapPercentMin: null,
+  spxGapPercentMax: null,
+};
 
 export interface FilterState {
   side: { long: boolean; short: boolean };
@@ -15,6 +79,7 @@ export interface FilterState {
   setups: Set<string>;
   dateRange: { from: string | null; to: string | null };
   datePreset: string | null;
+  customTags: CustomTagFilters;
 }
 
 const defaultFilters: FilterState = {
@@ -24,6 +89,7 @@ const defaultFilters: FilterState = {
   setups: new Set(),
   dateRange: { from: null, to: null },
   datePreset: null,
+  customTags: defaultCustomTagFilters,
 };
 
 interface FilterContextValue {
@@ -35,6 +101,7 @@ interface FilterContextValue {
   toggleSetup: (setup: string) => void;
   setDateRange: (from: string | null, to: string | null) => void;
   setDatePreset: (preset: string | null) => void;
+  setCustomTagFilters: (fn: (prev: CustomTagFilters) => CustomTagFilters) => void;
   clearFilters: () => void;
   applyFilters: (trades: Trade[]) => Trade[];
   hasActiveFilters: boolean;
@@ -96,6 +163,10 @@ export function FilterProvider({ children }: { children: ReactNode }) {
     }));
   }, []);
 
+  const setCustomTagFilters = useCallback((fn: (prev: CustomTagFilters) => CustomTagFilters) => {
+    setFilters((prev) => ({ ...prev, customTags: fn(prev.customTags) }));
+  }, []);
+
   const clearFilters = useCallback(() => {
     setFilters(defaultFilters);
   }, []);
@@ -130,75 +201,116 @@ export function FilterProvider({ children }: { children: ReactNode }) {
         if (symbols.size > 0 && !symbols.has(trade.symbol)) return false;
         if (setups.size > 0 && !setups.has(trade.strategyTag ?? "Other")) return false;
 
-        let from: Date | null = null;
-        let to: Date | null = null;
+        const exitKey = getAppDateKey(new Date(trade.exitDate));
+
         if (dateRange.from || dateRange.to) {
-          from = dateRange.from ? new Date(dateRange.from) : null;
-          to = dateRange.to ? new Date(dateRange.to + "T23:59:59") : null;
+          if (dateRange.from && exitKey < dateRange.from) return false;
+          if (dateRange.to && exitKey > dateRange.to) return false;
         } else if (datePreset) {
-          const now = new Date();
-          const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-          const pad = (n: number) => String(n).padStart(2, "0");
+          const todayKey = getTodayAppDateKey();
+          let fromKey: string | null = null;
+          let toKey: string | null = null;
           switch (datePreset) {
             case "today":
-              from = today;
-              to = new Date(today.getTime() + 86400000 - 1);
+              fromKey = todayKey;
+              toKey = todayKey;
               break;
             case "yesterday": {
-              const y = new Date(today);
-              y.setDate(y.getDate() - 1);
-              from = y;
-              to = new Date(y.getTime() + 86400000 - 1);
+              const yKey = getPreviousAppDateKey(todayKey);
+              fromKey = yKey;
+              toKey = yKey;
               break;
             }
             case "last7": {
-              from = new Date(today);
-              from.setDate(from.getDate() - 7);
-              to = new Date(now);
+              let d = todayKey;
+              for (let i = 0; i < 6; i++) d = getPreviousAppDateKey(d);
+              fromKey = d;
+              toKey = todayKey;
               break;
             }
             case "last30": {
-              from = new Date(today);
-              from.setDate(from.getDate() - 30);
-              to = new Date(now);
+              let d = todayKey;
+              for (let i = 0; i < 29; i++) d = getPreviousAppDateKey(d);
+              fromKey = d;
+              toKey = todayKey;
               break;
             }
             case "thisMonth":
-              from = new Date(now.getFullYear(), now.getMonth(), 1);
-              to = new Date(now);
+              fromKey = todayKey.slice(0, 7) + "-01";
+              toKey = todayKey;
               break;
             case "lastMonth": {
-              const m = now.getMonth() - 1;
-              const y = m < 0 ? now.getFullYear() - 1 : now.getFullYear();
-              from = new Date(y, m < 0 ? 11 : m, 1);
-              to = new Date(y, m < 0 ? 11 : m + 1, 0, 23, 59, 59);
+              const firstThisMonth = todayKey.slice(0, 7) + "-01";
+              const lastLastMonth = getPreviousAppDateKey(firstThisMonth);
+              fromKey = lastLastMonth.slice(0, 7) + "-01";
+              toKey = lastLastMonth;
               break;
             }
             case "last12Months": {
-              from = new Date(now);
-              from.setMonth(from.getMonth() - 12);
-              to = new Date(now);
+              const y = Number(todayKey.slice(0, 4)) - 1;
+              const rest = todayKey.slice(5);
+              fromKey = `${y}-${rest}`;
+              toKey = todayKey;
               break;
             }
             case "lastYear": {
-              const y = now.getFullYear() - 1;
-              from = new Date(y, 0, 1);
-              to = new Date(y, 11, 31, 23, 59, 59);
+              const y = Number(todayKey.slice(0, 4)) - 1;
+              fromKey = `${y}-01-01`;
+              toKey = `${y}-12-31`;
               break;
             }
             case "ytd":
-              from = new Date(now.getFullYear(), 0, 1);
-              to = new Date(now);
+              fromKey = todayKey.slice(0, 4) + "-01-01";
+              toKey = todayKey;
               break;
             default:
               break;
           }
+          if (fromKey != null && exitKey < fromKey) return false;
+          if (toKey != null && exitKey > toKey) return false;
         }
-        if (from || to) {
-          const exitDate = new Date(trade.exitDate);
-          if (from && exitDate < from) return false;
-          if (to && exitDate > to) return false;
-        }
+
+        const ct = filters.customTags;
+        const parts = getAppDateParts(new Date(trade.exitDate));
+        if (ct.years.length > 0 && !ct.years.includes(parts.year)) return false;
+        if (ct.months.length > 0 && !ct.months.includes(parts.month)) return false;
+        if (ct.days.length > 0 && !ct.days.includes(parts.day)) return false;
+        if (ct.hours.length > 0 && !ct.hours.includes(parts.hour)) return false;
+        const duration = Number(trade.duration) || 0;
+        if (ct.holdTimeMin != null && duration < ct.holdTimeMin) return false;
+        if (ct.holdTimeMax != null && duration > ct.holdTimeMax) return false;
+        const entryPrice = Number(trade.entryPrice) || 0;
+        if (ct.entryPriceMin != null && entryPrice < ct.entryPriceMin) return false;
+        if (ct.entryPriceMax != null && entryPrice > ct.entryPriceMax) return false;
+        const vol = Math.abs(Number(trade.positionSize) || 0);
+        if (ct.volumeMin != null && vol < ct.volumeMin) return false;
+        if (ct.volumeMax != null && vol > ct.volumeMax) return false;
+        const pct = Number(trade.pnlPercentage) || 0;
+        if (ct.changePercentMin != null && pct < ct.changePercentMin) return false;
+        if (ct.changePercentMax != null && pct > ct.changePercentMax) return false;
+        const pnl = Number(trade.pnl) || 0;
+        if (ct.bestExitPnlMin != null && pnl < ct.bestExitPnlMin) return false;
+        if (ct.bestExitPnlMax != null && pnl > ct.bestExitPnlMax) return false;
+        if (ct.bestExitPctMin != null && pct < ct.bestExitPctMin) return false;
+        if (ct.bestExitPctMax != null && pct > ct.bestExitPctMax) return false;
+        const { mfe, mae } = getTradeMfeMae(trade);
+        if (ct.positionMaeMin != null && mae < ct.positionMaeMin) return false;
+        if (ct.positionMaeMax != null && mae > ct.positionMaeMax) return false;
+        if (ct.positionMfeMin != null && mfe < ct.positionMfeMin) return false;
+        if (ct.positionMfeMax != null && mfe > ct.positionMfeMax) return false;
+
+        const spyGap$ = trade.spyOpeningGapDollars;
+        const spyGapPct = trade.spyOpeningGapPercent;
+        const spxGap$ = trade.spxOpeningGapDollars;
+        const spxGapPct = trade.spxOpeningGapPercent;
+        if (ct.spyGapDollarsMin != null && (spyGap$ == null || spyGap$ < ct.spyGapDollarsMin)) return false;
+        if (ct.spyGapDollarsMax != null && (spyGap$ == null || spyGap$ > ct.spyGapDollarsMax)) return false;
+        if (ct.spyGapPercentMin != null && (spyGapPct == null || spyGapPct < ct.spyGapPercentMin)) return false;
+        if (ct.spyGapPercentMax != null && (spyGapPct == null || spyGapPct > ct.spyGapPercentMax)) return false;
+        if (ct.spxGapDollarsMin != null && (spxGap$ == null || spxGap$ < ct.spxGapDollarsMin)) return false;
+        if (ct.spxGapDollarsMax != null && (spxGap$ == null || spxGap$ > ct.spxGapDollarsMax)) return false;
+        if (ct.spxGapPercentMin != null && (spxGapPct == null || spxGapPct < ct.spxGapPercentMin)) return false;
+        if (ct.spxGapPercentMax != null && (spxGapPct == null || spxGapPct > ct.spxGapPercentMax)) return false;
 
         return true;
       });
@@ -207,12 +319,20 @@ export function FilterProvider({ children }: { children: ReactNode }) {
   );
 
   const hasActiveFilters = useMemo(() => {
-    const { side, status, symbols, setups, dateRange, datePreset } = filters;
+    const { side, status, symbols, setups, dateRange, datePreset, customTags: ct } = filters;
     if (side.long || side.short) return true;
     if (status.win || status.loss || status.be || status.open) return true;
     if (symbols.size > 0) return true;
     if (setups.size > 0) return true;
     if (dateRange.from || dateRange.to || datePreset) return true;
+    if (ct.years.length > 0 || ct.months.length > 0 || ct.days.length > 0 || ct.hours.length > 0) return true;
+    if (ct.holdTimeMin != null || ct.holdTimeMax != null || ct.entryPriceMin != null || ct.entryPriceMax != null) return true;
+    if (ct.volumeMin != null || ct.volumeMax != null) return true;
+    if (ct.changePercentMin != null || ct.changePercentMax != null) return true;
+    if (ct.positionMaeMin != null || ct.positionMaeMax != null || ct.positionMfeMin != null || ct.positionMfeMax != null) return true;
+    if (ct.bestExitPnlMin != null || ct.bestExitPnlMax != null || ct.bestExitPctMin != null || ct.bestExitPctMax != null) return true;
+    if (ct.spyGapDollarsMin != null || ct.spyGapDollarsMax != null || ct.spyGapPercentMin != null || ct.spyGapPercentMax != null) return true;
+    if (ct.spxGapDollarsMin != null || ct.spxGapDollarsMax != null || ct.spxGapPercentMin != null || ct.spxGapPercentMax != null) return true;
     return false;
   }, [filters]);
 
@@ -226,6 +346,7 @@ export function FilterProvider({ children }: { children: ReactNode }) {
       toggleSetup,
       setDateRange,
       setDatePreset,
+      setCustomTagFilters,
       clearFilters,
       applyFilters,
       hasActiveFilters,
@@ -238,6 +359,7 @@ export function FilterProvider({ children }: { children: ReactNode }) {
       toggleSetup,
       setDateRange,
       setDatePreset,
+      setCustomTagFilters,
       clearFilters,
       applyFilters,
       hasActiveFilters,

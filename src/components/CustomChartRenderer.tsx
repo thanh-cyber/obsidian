@@ -16,12 +16,13 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  Legend,
 } from "recharts";
 import {
   buildChartData,
+  buildBucketedBarData,
   METRICS,
   formatMetricValue,
+  type DataPoint,
   type MetricId,
 } from "@/utils/customChartMetrics";
 import type { CustomChartConfig } from "@/utils/analyticsChartsStorage";
@@ -49,28 +50,60 @@ export function CustomChartRenderer({ trades, config }: CustomChartRendererProps
   const m1Def = METRICS.find((m) => m.id === metric1);
   const m2Def = metric2 ? METRICS.find((m) => m.id === metric2) : null;
 
-  const data = buildChartData(trades, groupBy, metric1, metric2);
+  if (!m1Def) {
+    return (
+      <div
+        className="flex items-center justify-center text-muted-foreground text-sm"
+        style={{ height: CHART_HEIGHT }}
+      >
+        Invalid chart config. Re-save the chart or pick a valid X axis metric.
+      </div>
+    );
+  }
+
+  let data = buildChartData(trades, groupBy, metric1, metric2);
   const useTwoMetrics =
     chartType === "scatter" || (chartType !== "pie" && !!metric2);
 
-  /** When two metrics use different units, use a second Y-axis so scale is meaningful */
-  const useDualYAxis =
-    useTwoMetrics &&
-    !!m2Def &&
-    !!m1Def &&
-    m1Def.format !== m2Def.format;
+  /** When two metrics: X axis = metric1 (horizontal), Y axis = metric2 (vertical). Sort by X for line order. */
+  const xIsMetric1 = useTwoMetrics && !!m2Def && (chartType === "line" || chartType === "bar" || chartType === "area");
+  if (xIsMetric1) {
+    data = [...data].sort((a, b) => Number(a.value) - Number(b.value));
+  }
 
-  /** Format tooltip value by series name so P&L shows as $ and Duration as min */
+  /** Only use dual Y-axis when we're NOT doing X vs Y (i.e. category on X, two series on Y - we no longer do that when two metrics) */
+  const useDualYAxis = false;
+
+  const tooltipStyle: React.CSSProperties = {
+    backgroundColor: "hsl(var(--popover))",
+    border: "1px solid hsl(var(--border))",
+    borderRadius: "8px",
+  };
+
+  /** Format tooltip value by series name */
   const tooltipFormatter = (value: number, name: string) => {
     if (typeof value !== "number" || !Number.isFinite(value)) return "—";
     if (name === m2Def?.label && m2Def) return formatMetricValue(value, m2Def.format);
     return m1Def ? formatMetricValue(value, m1Def.format) : String(value);
   };
 
-  const tooltipStyle = {
-    backgroundColor: "hsl(var(--popover))",
-    border: "1px solid hsl(var(--border))",
-    borderRadius: "8px",
+  /** Custom tooltip for X vs Y mode: show both axes */
+  const renderXyTooltip = (props: { active?: boolean; payload?: { payload: DataPoint }[] }) => {
+    if (!props.active || !props.payload?.length || !m1Def || !m2Def) return null;
+    const p = props.payload[0].payload;
+    const xVal = typeof p.value === "number" ? p.value : Number(p.value);
+    const yVal = typeof p.value2 === "number" ? p.value2 : Number(p.value2);
+    return (
+      <div style={tooltipStyle} className="rounded-lg border border-border px-3 py-2 text-sm shadow-md">
+        {p.name && <div className="font-medium text-foreground mb-1">{p.name}</div>}
+        <div className="text-muted-foreground">
+          {m1Def.label}: {formatMetricValue(xVal, m1Def.format)}
+        </div>
+        <div className="text-muted-foreground">
+          {m2Def.label}: {formatMetricValue(yVal, m2Def.format)}
+        </div>
+      </div>
+    );
   };
 
   if (data.length === 0) {
@@ -187,48 +220,48 @@ export function CustomChartRenderer({ trades, config }: CustomChartRendererProps
         <LineChart {...commonProps}>
           <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
           <XAxis
-            dataKey="name"
+            type={xIsMetric1 ? "number" : "category"}
+            dataKey={xIsMetric1 ? "value" : "name"}
             stroke={axisStroke}
-            angle={data.length > 6 ? -45 : 0}
-            textAnchor={data.length > 6 ? "end" : "middle"}
+            angle={!xIsMetric1 && data.length > 6 ? -45 : 0}
+            textAnchor={!xIsMetric1 && data.length > 6 ? "end" : "middle"}
             height={data.length > 6 ? 80 : 30}
+            tickFormatter={xIsMetric1 && m1Def ? (v: number) => formatMetricValue(v, m1Def.format) : undefined}
+            label={xIsMetric1 && m1Def ? { value: m1Def.label, position: "insideBottom", offset: -5 } : undefined}
           />
           <YAxis
-            yAxisId="left"
             stroke={axisStroke}
-            tickFormatter={tickFormatterLeft}
-            label={m1Def ? { value: m1Def.label, angle: -90, position: "insideLeft" } : undefined}
+            tickFormatter={xIsMetric1 && m2Def ? tickFormatterRight : tickFormatterLeft}
+            label={
+              xIsMetric1 && m2Def
+                ? { value: m2Def.label, angle: -90, position: "insideLeft" }
+                : m1Def ? { value: m1Def.label, angle: -90, position: "insideLeft" } : undefined
+            }
           />
-          {useDualYAxis && m2Def && (
-            <YAxis
-              yAxisId="right"
-              orientation="right"
-              stroke={axisStroke}
-              tickFormatter={tickFormatterRight}
-              label={{ value: m2Def.label, angle: 90, position: "insideRight" }}
-            />
-          )}
-          <Tooltip contentStyle={tooltipStyle} formatter={tooltipFormatter} />
-          <Line
-            type="monotone"
-            dataKey="value"
-            stroke="hsl(var(--primary))"
-            strokeWidth={2}
-            dot={{ fill: "hsl(var(--primary))", r: 3 }}
-            name={m1Def?.label}
+          <Tooltip
+            content={xIsMetric1 ? renderXyTooltip : undefined}
+            contentStyle={!xIsMetric1 ? tooltipStyle : undefined}
+            formatter={xIsMetric1 ? undefined : tooltipFormatter}
           />
-          {useTwoMetrics && m2Def && (
+          {xIsMetric1 && m2Def ? (
             <Line
               type="monotone"
               dataKey="value2"
-              yAxisId={useDualYAxis ? "right" : undefined}
-              stroke="hsl(var(--destructive))"
+              stroke="hsl(var(--primary))"
               strokeWidth={2}
-              dot={{ fill: "hsl(var(--destructive))", r: 3 }}
+              dot={{ fill: "hsl(var(--primary))", r: 3 }}
               name={m2Def.label}
             />
+          ) : (
+            <Line
+              type="monotone"
+              dataKey="value"
+              stroke="hsl(var(--primary))"
+              strokeWidth={2}
+              dot={{ fill: "hsl(var(--primary))", r: 3 }}
+              name={m1Def?.label}
+            />
           )}
-          {useTwoMetrics && m2Def && <Legend />}
         </LineChart>
       </ResponsiveContainer>
     );
@@ -240,98 +273,90 @@ export function CustomChartRenderer({ trades, config }: CustomChartRendererProps
         <AreaChart {...commonProps}>
           <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
           <XAxis
-            dataKey="name"
+            type={xIsMetric1 ? "number" : "category"}
+            dataKey={xIsMetric1 ? "value" : "name"}
             stroke={axisStroke}
-            angle={data.length > 6 ? -45 : 0}
-            textAnchor={data.length > 6 ? "end" : "middle"}
+            angle={!xIsMetric1 && data.length > 6 ? -45 : 0}
+            textAnchor={!xIsMetric1 && data.length > 6 ? "end" : "middle"}
             height={data.length > 6 ? 80 : 30}
+            tickFormatter={xIsMetric1 && m1Def ? (v: number) => formatMetricValue(v, m1Def.format) : undefined}
+            label={xIsMetric1 && m1Def ? { value: m1Def.label, position: "insideBottom", offset: -5 } : undefined}
           />
           <YAxis
-            yAxisId="left"
             stroke={axisStroke}
-            tickFormatter={tickFormatterLeft}
-            label={m1Def ? { value: m1Def.label, angle: -90, position: "insideLeft" } : undefined}
+            tickFormatter={xIsMetric1 && m2Def ? tickFormatterRight : tickFormatterLeft}
+            label={
+              xIsMetric1 && m2Def
+                ? { value: m2Def.label, angle: -90, position: "insideLeft" }
+                : m1Def ? { value: m1Def.label, angle: -90, position: "insideLeft" } : undefined
+            }
           />
-          {useDualYAxis && m2Def && (
-            <YAxis
-              yAxisId="right"
-              orientation="right"
-              stroke={axisStroke}
-              tickFormatter={tickFormatterRight}
-              label={{ value: m2Def.label, angle: 90, position: "insideRight" }}
-            />
-          )}
-          <Tooltip contentStyle={tooltipStyle} formatter={tooltipFormatter} />
-          <Area
-            type="monotone"
-            dataKey="value"
-            stroke="hsl(var(--primary))"
-            fill="hsl(var(--primary))"
-            fillOpacity={0.3}
-            strokeWidth={2}
-            name={m1Def?.label}
+          <Tooltip
+            content={xIsMetric1 ? renderXyTooltip : undefined}
+            contentStyle={!xIsMetric1 ? tooltipStyle : undefined}
+            formatter={xIsMetric1 ? undefined : tooltipFormatter}
           />
-          {useTwoMetrics && m2Def && (
+          {xIsMetric1 && m2Def ? (
             <Area
               type="monotone"
               dataKey="value2"
-              yAxisId={useDualYAxis ? "right" : undefined}
-              stroke="hsl(var(--destructive))"
-              fill="hsl(var(--destructive))"
-              fillOpacity={0.2}
+              stroke="hsl(var(--primary))"
+              fill="hsl(var(--primary))"
+              fillOpacity={0.3}
               strokeWidth={2}
               name={m2Def.label}
             />
+          ) : (
+            <Area
+              type="monotone"
+              dataKey="value"
+              stroke="hsl(var(--primary))"
+              fill="hsl(var(--primary))"
+              fillOpacity={0.3}
+              strokeWidth={2}
+              name={m1Def?.label}
+            />
           )}
-          {useTwoMetrics && m2Def && <Legend />}
         </AreaChart>
       </ResponsiveContainer>
     );
   }
 
+  // Bar chart: use clear buckets (range labels) with count per bucket; color by positive/negative
+  const barValues = data.map((d) => Number(d.value));
+  const bucketData = buildBucketedBarData(barValues, metric1);
+  const barChartData = bucketData.length > 0 ? bucketData : data.map((d) => ({ name: String(d.name), count: 1, isPositive: Number(d.value) >= 0 }));
+
   return (
     <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
-      <BarChart {...commonProps}>
+      <BarChart data={barChartData} margin={commonProps.margin}>
         <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
         <XAxis
           dataKey="name"
           stroke={axisStroke}
-          angle={data.length > 6 ? -45 : 0}
-          textAnchor={data.length > 6 ? "end" : "middle"}
-          height={data.length > 6 ? 80 : 30}
+          angle={barChartData.length > 6 ? -45 : 0}
+          textAnchor={barChartData.length > 6 ? "end" : "middle"}
+          height={barChartData.length > 6 ? 80 : 30}
+          label={m1Def ? { value: m1Def.label, position: "insideBottom", offset: -5 } : undefined}
         />
         <YAxis
-          yAxisId="left"
           stroke={axisStroke}
-          tickFormatter={tickFormatterLeft}
-          label={m1Def ? { value: m1Def.label, angle: -90, position: "insideLeft" } : undefined}
+          allowDecimals={false}
+          label={{ value: "Trades", angle: -90, position: "insideLeft" }}
         />
-        {useDualYAxis && m2Def && (
-          <YAxis
-            yAxisId="right"
-            orientation="right"
-            stroke={axisStroke}
-            tickFormatter={tickFormatterRight}
-            label={{ value: m2Def.label, angle: 90, position: "insideRight" }}
-          />
-        )}
-        <Tooltip contentStyle={tooltipStyle} formatter={tooltipFormatter} />
-        <Bar
-          dataKey="value"
-          fill="hsl(var(--primary))"
-          radius={[8, 8, 0, 0]}
-          name={m1Def?.label}
+        <Tooltip
+          contentStyle={tooltipStyle}
+          formatter={(value: number) => [value, "Trades"]}
+          labelFormatter={(label) => label}
         />
-        {useTwoMetrics && m2Def && (
-          <Bar
-            dataKey="value2"
-            yAxisId={useDualYAxis ? "right" : undefined}
-            fill="hsl(var(--destructive))"
-            radius={[8, 8, 0, 0]}
-            name={m2Def.label}
-          />
-        )}
-        {useTwoMetrics && m2Def && <Legend />}
+        <Bar dataKey="count" radius={[8, 8, 0, 0]} name="Trades">
+          {barChartData.map((entry, index) => (
+            <Cell
+              key={`cell-${index}`}
+              fill={entry.isPositive ? "hsl(var(--success))" : "hsl(var(--destructive))"}
+            />
+          ))}
+        </Bar>
       </BarChart>
     </ResponsiveContainer>
   );

@@ -1,0 +1,23 @@
+---
+description: Use US Eastern (market time) for all date/time display and day-boundary logic
+globs: "**/*.{ts,tsx}"
+alwaysApply: false
+---
+
+# App timezone: US Eastern (ET)
+
+All date/time display and day-boundary logic in the app use **US Eastern** (market time), not the user's local timezone.
+
+## Where it's defined
+
+- **`src/utils/appDateTime.ts`** – single source of truth:
+  - `APP_TIMEZONE = "America/New_York"`
+  - `formatAppDate`, `formatAppDateTime`, `formatAppDateTimeLong`, `formatAppDateTimeISO`
+  - `getAppDateKey(date)` – `"YYYY-MM-DD"` in ET (use for daily buckets, filters)
+  - `formatAppDayNum`, `formatAppMonthYear`, `getMonthDaysAppKeys`, etc.
+
+## What to do
+
+- **Displaying a date or time:** use the formatters from `@/utils/appDateTime` (e.g. `formatAppDateTime(date)`), not `date-fns` `format()` or `toLocaleString()` without a timezone.
+- **Grouping or filtering by day:** use `getAppDateKey(date)` so the day is the calendar day in ET.
+- **New features:** any new date/time display or “by day” logic should use `appDateTime.ts` helpers so the app stays ET everywhere.

@@ -1,19 +1,9 @@
 import { ReplayTrade, ReplayBar, ReplayState, PolygonConfig } from '@/types/replay';
 import { Trade } from '@/types/trade';
 
+/** Minimal chart API for replay streaming: TradeXChart (lightweight-charts) exposes streamTick. */
 interface TradeXChartInstance {
-  use(config: unknown): void;
-  state: {
-    data: {
-      setData(data: { ohlcv: ReplayBar[] }, merge?: boolean): void;
-    };
-  };
-  stream: {
-    onTick(callback: (data: unknown) => void): void;
-  };
-  on(event: string, callback: (...args: unknown[]) => void): void;
-  off(event: string, callback: (...args: unknown[]) => void): void;
-  destroy(): void;
+  streamTick?: (tickData: { t: number; o: number; h: number; l: number; c: number; v: number }) => void;
 }
 
 export class TradeManager {

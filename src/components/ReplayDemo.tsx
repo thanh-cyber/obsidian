@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { TradeManager } from '@/utils/tradeManager';
 import { ReplayTrade } from '@/types/replay';
 import { Trade } from '@/types/trade';
+import { formatAppDateTime } from '@/utils/appDateTime';
 
 interface ReplayDemoProps {
   onTradeSelect: (trade: Trade) => void;
@@ -66,7 +67,7 @@ export const ReplayDemo = ({ onTradeSelect }: ReplayDemoProps) => {
   };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleString();
+    return formatAppDateTime(new Date(dateString));
   };
 
   const formatPnL = (pnl: number) => {

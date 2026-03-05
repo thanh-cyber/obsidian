@@ -5,13 +5,18 @@ import {
   startOfWeek,
   endOfWeek,
   eachDayOfInterval,
-  format,
   isSameMonth,
   addMonths,
   subMonths,
   startOfDay,
 } from "date-fns";
 import { Fragment } from "react";
+import {
+  getAppDateKey,
+  formatAppDate,
+  formatAppDayNum,
+  formatAppMonthYear,
+} from "@/utils/appDateTime";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -52,7 +57,7 @@ export const PnLCalendarView = ({
   const [focusedDate, setFocusedDate] = useState(now);
   const [year, setYear] = useState(now.getFullYear());
 
-  const getDayKey = (date: Date) => format(date, "yyyy-MM-dd");
+  const getDayKey = (date: Date) => getAppDateKey(date);
   const getDayPnL = (date: Date): number | null => {
     const key = getDayKey(date);
     return dailyPnL.has(key) ? dailyPnL.get(key)! : null;
@@ -193,11 +198,11 @@ export const PnLCalendarView = ({
                     onClick={() => onDayClick?.(dateKey, pnl ?? 0)}
                     title={
                       pnl !== null
-                        ? `${format(date, "MMM d, yyyy")}: $${pnl.toFixed(2)}${tradeCount ? ` · ${tradeCount} trades` : ""}`
-                        : format(date, "MMM d, yyyy")
+                        ? `${formatAppDate(date)}: $${pnl.toFixed(2)}${tradeCount ? ` · ${tradeCount} trades` : ""}`
+                        : formatAppDate(date)
                     }
                   >
-                    <span className="font-medium">{format(date, "d")}</span>
+                    <span className="font-medium">{formatAppDayNum(date)}</span>
                     {pnl !== null && (
                       <span className={cn("text-[0.65rem]", pnl >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400")}>
                         {pnl >= 0 ? "" : "-"}${Math.abs(pnl).toFixed(2)}
@@ -251,7 +256,7 @@ export const PnLCalendarView = ({
       >
         <div className="mb-2 flex items-center justify-between">
           <span className="text-sm font-medium text-foreground">
-            {format(monthStart, "MMMM, yyyy")}
+            {formatAppMonthYear(monthStart)}
           </span>
           <Button
             variant="ghost"
@@ -290,11 +295,11 @@ export const PnLCalendarView = ({
                 onClick={() => onDayClick?.(dateKey, pnl ?? 0)}
                 title={
                   pnl !== null
-                    ? `${format(date, "MMM d, yyyy")}: $${pnl.toFixed(2)}`
-                    : format(date, "MMM d, yyyy")
+                    ? `${formatAppDate(date)}: $${pnl.toFixed(2)}`
+                    : formatAppDate(date)
                 }
               >
-                {format(date, "d")}
+                {formatAppDayNum(date)}
               </div>
             );
           })}

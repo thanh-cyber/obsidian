@@ -67,6 +67,18 @@ export function saveAnalyticsCharts(items: AnalyticsChartItem[]): void {
   }
 }
 
+/** Add a custom chart (e.g. from AI suggestion). Persists to localStorage so it appears on Analytics page. */
+export function addCustomChartToAnalytics(
+  config: CustomChartConfig,
+  title?: string
+): string {
+  const items = loadAnalyticsCharts();
+  const id = `custom-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  items.push({ id, type: "custom", config, title });
+  saveAnalyticsCharts(items);
+  return id;
+}
+
 export function getBuiltinChartTitle(variant: BuiltinChartVariant): string {
   switch (variant) {
     case "cumulativePnl":

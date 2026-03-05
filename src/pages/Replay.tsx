@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Slider } from '@/components/ui/slider';
@@ -13,6 +13,7 @@ import { useFilters } from '@/context/FilterContext';
 import { ReplayTest } from '@/components/ReplayTest';
 import { ReplayDemo } from '@/components/ReplayDemo';
 import { TradeXChart } from '@/components/TradeXChart';
+import { TIMEFRAME_MS } from '@/utils/chartData';
 
 export const Replay = () => {
   const [tradeManager, setTradeManager] = useState<TradeManager | null>(null);
@@ -27,8 +28,11 @@ export const Replay = () => {
   const [apiStats, setApiStats] = useState<{ callsThisSecond: number; maxCallsPerSecond: number; isPaidSubscription: boolean } | null>(null);
   const [cacheStats, setCacheStats] = useState<{ size: number; keys: string[] } | null>(null);
   const [chartData, setChartData] = useState<Array<[number, number, number, number, number, number]>>([]);
+  const [selectedTradeOriginal, setSelectedTradeOriginal] = useState<Trade | null>(null);
+  const [chartSize, setChartSize] = useState({ width: 800, height: 600 });
   
   const chartContainerRef = useRef<HTMLDivElement>(null);
+  const chartWrapperRef = useRef<HTMLDivElement>(null);
   const chartInstanceRef = useRef<unknown>(null);
 
   const { applyFilters } = useFilters();
@@ -38,20 +42,17 @@ export const Replay = () => {
   useEffect(() => {
     const loadedTrades = loadTrades();
     setTrades(loadedTrades);
-    
-    // Check for API key in environment variables
+
     const envApiKey = import.meta.env.VITE_POLYGON_API_KEY;
     if (envApiKey) {
       setApiKey(envApiKey);
-      setIsPaidSubscription(true); // Assume paid subscription if API key is provided
+      setIsPaidSubscription(true);
     } else {
-      // If no API key found, show error
       setError('No API key found in environment variables. Please set VITE_POLYGON_API_KEY in your .env.local file.');
     }
-    
   }, []);
 
-  // Initialize trade manager when API key is provided
+  // Initialize trade manager when API key is provided (for Polygon data)
   useEffect(() => {
     if (apiKey && !tradeManager) {
       const manager = new TradeManager(apiKey, isPaidSubscription);
@@ -100,6 +101,7 @@ export const Replay = () => {
       // Convert trade to replay format and add to manager
       const replayTrade = tradeManager.convertTrade(trade);
       setSelectedTrade(replayTrade);
+      setSelectedTradeOriginal(trade);
       console.log('Converted to replay trade:', replayTrade);
       
       // Get the latest trades array (should include the newly added trade)
@@ -142,8 +144,35 @@ export const Replay = () => {
       console.error('Replay initialization error:', err);
       setError(err instanceof Error ? err.message : 'Failed to initialize replay');
       setSelectedTrade(null);
+      setSelectedTradeOriginal(null);
     }
   };
+
+  // Execution markers from original trade (same as TradeDetailModal) for entry/exit fills
+  const executionMarkers = useMemo(() => {
+    if (!selectedTradeOriginal?.executionsList?.length) return undefined;
+    return selectedTradeOriginal.executionsList.map((e) => ({
+      time: new Date(e.dateTime).getTime(),
+      side: (e.qty > 0 ? 'buy' : 'sell') as 'buy' | 'sell',
+      label: e.qty > 0 ? 'BUY' : 'SELL',
+      price: e.price,
+    }));
+  }, [selectedTradeOriginal]);
+
+  // Size chart to container (same pattern as TradeDetailModal)
+  useEffect(() => {
+    const el = chartWrapperRef.current;
+    if (!el || !selectedTrade || !isInitialized) return;
+    const update = () =>
+      setChartSize({
+        width: Math.max(1, el.offsetWidth || 800),
+        height: Math.max(1, el.offsetHeight || 600),
+      });
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [selectedTrade, isInitialized, chartData.length]);
 
   const handlePlayPause = () => {
     if (tradeManager) {
@@ -340,15 +369,15 @@ export const Replay = () => {
           </CardContent>
         </Card>
 
-        {/* Chart Container */}
+        {/* Chart Container - same TradingView/lightweight-charts TradeXChart as in Trades with entry/exit markers */}
         <Card className="mb-6">
           <CardHeader>
             <CardTitle>Price Chart</CardTitle>
           </CardHeader>
           <CardContent>
-            <div 
+            <div
               ref={chartContainerRef}
-              className="w-full h-[600px] bg-card rounded-lg"
+              className="w-full h-[600px] bg-card rounded-lg min-h-0 flex flex-col"
             >
               {!isInitialized && !selectedTrade && (
                 <div className="flex items-center justify-center h-full text-muted-foreground">
@@ -365,28 +394,24 @@ export const Replay = () => {
                 </div>
               )}
               {selectedTrade && isInitialized && chartData.length > 0 && (
-                <TradeXChart 
-                  data={chartData}
-                  symbol={selectedTrade.symbol}
-                  width={800}
-                  height={600}
-                  entry={{
-                    time: selectedTrade.entryTime,
-                    price: selectedTrade.entryPrice
-                  }}
-                  exit={{
-                    time: selectedTrade.exitTime,
-                    price: selectedTrade.exitPrice
-                  }}
-                  onChartReady={(chartInstance) => {
-                    chartInstanceRef.current = chartInstance;
-                    // Connect chart to trade manager for streaming
-                    if (tradeManager) {
-                      tradeManager.setChartInstance(chartInstance);
-                    }
-                    console.log('TradeX chart ready with streaming');
-                  }}
-                />
+                <div ref={chartWrapperRef} className="flex-1 min-h-0 w-full">
+                  <TradeXChart
+                    data={chartData}
+                    symbol={selectedTrade.symbol}
+                    width={chartSize.width}
+                    height={chartSize.height}
+                    timeframeBarMs={TIMEFRAME_MS['1m']}
+                    markers={executionMarkers?.length ? executionMarkers : undefined}
+                    entry={!executionMarkers?.length ? { time: selectedTrade.entryTime, price: selectedTrade.entryPrice } : undefined}
+                    exit={!executionMarkers?.length ? { time: selectedTrade.exitTime, price: selectedTrade.exitPrice } : undefined}
+                    onChartReady={(chartInstance) => {
+                      chartInstanceRef.current = chartInstance;
+                      if (tradeManager) {
+                        tradeManager.setChartInstance(chartInstance);
+                      }
+                    }}
+                  />
+                </div>
               )}
             </div>
           </CardContent>

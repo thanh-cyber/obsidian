@@ -18,8 +18,12 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { format } from "date-fns";
+import { formatAppDate } from "@/utils/appDateTime";
 import { AnalyticsContent } from "@/components/AnalyticsContent";
+import { MfeMaeCharts } from "@/components/MfeMaeCharts";
+import { AIAnalyticDiveChat } from "@/components/AIAnalyticDiveChat";
+import { TradeSectionBucketChart } from "@/components/TradeSectionBucketChart";
+import type { TradeSectionDimension } from "@/utils/tradeSectionBuckets";
 
 export const Reports = () => {
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -53,6 +57,12 @@ export const Reports = () => {
     setActiveSection(section);
     setActiveItem(item);
   };
+
+  const TRADE_SECTION_ITEMS: TradeSectionDimension[] = [
+    "Hourly", "Weekday", "Month", "Year", "Entry Price", "Cost", "Volume", "Side", "Hold Time",
+  ];
+  const isTradeSectionDimension = (item: string): item is TradeSectionDimension =>
+    TRADE_SECTION_ITEMS.includes(item as TradeSectionDimension);
 
   const formatFactor = (v: number) =>
     Number.isFinite(v) && v < 1e10 ? v.toFixed(2) : v >= 1e10 ? "∞" : "—";
@@ -88,7 +98,7 @@ export const Reports = () => {
             </p>
           </div>
 
-          {activeItem !== "Analytics" && (
+          {activeItem !== "Analytics" && !(activeSection === "AI" && activeItem === "AI Analytic Dive") && !(activeSection === "TRADE" && isTradeSectionDimension(activeItem)) && (
             <div className="flex gap-3">
               <Select defaultValue="line">
                 <SelectTrigger className="w-32 bg-secondary border-border">
@@ -132,6 +142,12 @@ export const Reports = () => {
 
         {activeItem === "Analytics" ? (
           <AnalyticsContent trades={filteredTrades} />
+        ) : activeSection === "EXIT STATS" && activeItem === "MFE/MAE" ? (
+          <MfeMaeCharts trades={filteredTrades} />
+        ) : activeSection === "AI" && activeItem === "AI Analytic Dive" ? (
+          <AIAnalyticDiveChat trades={filteredTrades} />
+        ) : activeSection === "TRADE" && isTradeSectionDimension(activeItem) ? (
+          <TradeSectionBucketChart trades={filteredTrades} dimension={activeItem as TradeSectionDimension} />
         ) : activeItem === "Overview" ? (
           <>
             {/* Accumulative Return Chart — always at top of Overview */}
@@ -169,7 +185,7 @@ export const Reports = () => {
                       data={overview.cumulativeData.map((d) => ({
                         ...d,
                         display: accumulativeMode === "gross" ? d.gross : d.net,
-                        dateLabel: format(new Date(d.date + "T12:00:00"), "MMM d, yyyy"),
+                        dateLabel: formatAppDate(new Date(d.date + "T12:00:00")),
                       }))}
                       margin={{ top: 4, right: 8, left: 8, bottom: 4 }}
                     >

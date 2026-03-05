@@ -13,6 +13,7 @@ import { ChartErrorBoundary } from "@/components/ChartErrorBoundary";
 import { TIMEFRAME_MS, type TimeframeKey } from "@/utils/chartData";
 import { fetchPolygonBars } from "@/utils/polygon";
 import { getFullSessionRangeMs } from "@/utils/sessionRange";
+import { getTradeMfeMae } from "@/utils/calculations";
 import { type IndicatorKey } from "@/utils/indicatorPresets";
 import { getDefaultIndicatorSettings, type IndicatorSettings } from "@/utils/indicatorSettingsSchema";
 import { IndicatorsDialog } from "@/components/IndicatorsDialog";
@@ -28,7 +29,7 @@ import {
   HelpCircle,
   SlidersHorizontal,
 } from "lucide-react";
-import { format } from "date-fns";
+import { formatAppDateTime, formatAppDateTimeLong, formatAppDateTimeISO } from "@/utils/appDateTime";
 import {
   Table,
   TableBody,
@@ -257,7 +258,7 @@ export function TradeDetailModal({
 
   const handleShare = useCallback(() => {
     if (!trade) return;
-    const text = `${trade.symbol} | Entry: ${format(new Date(trade.entryDate), "PPp")} @ $${trade.entryPrice.toFixed(2)} | Exit: ${format(new Date(trade.exitDate), "PPp")} @ $${trade.exitPrice.toFixed(2)} | P&L: $${trade.pnl.toFixed(2)}`;
+    const text = `${trade.symbol} | Entry: ${formatAppDateTime(new Date(trade.entryDate))} @ $${trade.entryPrice.toFixed(2)} | Exit: ${formatAppDateTime(new Date(trade.exitDate))} @ $${trade.exitPrice.toFixed(2)} | P&L: $${trade.pnl.toFixed(2)}`;
     navigator.clipboard?.writeText(text).then(
       () => toast.success("Copied to clipboard"),
       () => toast.error("Failed to copy")
@@ -330,7 +331,7 @@ export function TradeDetailModal({
                 <ArrowLeft className="h-4 w-4" />
               </Button>
               <SheetTitle className="text-lg font-semibold text-foreground">
-                {trade.symbol} {format(new Date(trade.entryDate), "MMM d, yyyy HH:mm:ss")}
+                {trade.symbol} {formatAppDateTimeLong(new Date(trade.entryDate))}
               </SheetTitle>
             </div>
             <div className="flex items-center gap-1">
@@ -376,9 +377,9 @@ export function TradeDetailModal({
                 <div className="text-muted-foreground">Best Exit P&L</div>
                 <div className="text-muted-foreground italic">Not yet calculated</div>
                 <div className="text-muted-foreground">Position MFE</div>
-                <div className="text-muted-foreground italic">Not yet calculated</div>
+                <div>{formatPnL(getTradeMfeMae(trade).mfe)}</div>
                 <div className="text-muted-foreground">Position MAE</div>
-                <div className="text-muted-foreground italic">Not yet calculated</div>
+                <div>{formatPnL(getTradeMfeMae(trade).mae)}</div>
               </div>
             </div>
             <div className="rounded-lg border border-border bg-secondary/30 p-4">
@@ -546,7 +547,7 @@ export function TradeDetailModal({
                   <TableRow key={`exec-${i}`} className="border-border">
                     <TableCell className="text-sm">
                       {Number.isFinite(new Date(row.dateTime).getTime())
-                        ? format(new Date(row.dateTime), "yyyy-MM-dd HH:mm:ss")
+                        ? formatAppDateTimeISO(new Date(row.dateTime))
                         : row.dateTime}
                     </TableCell>
                     <TableCell className="text-sm font-medium">{row.symbol}</TableCell>

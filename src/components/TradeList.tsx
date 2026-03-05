@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Edit, Trash2, Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { formatAppDateTime } from "@/utils/appDateTime";
 
 interface TradeListProps {
   trades: Trade[];
@@ -43,12 +44,7 @@ export const TradeList = ({ trades, onEdit, onDelete }: TradeListProps) => {
   };
 
   const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleString("en-US", {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+    return formatAppDateTime(new Date(dateStr));
   };
 
   const formatPnL = (pnl: number) => {

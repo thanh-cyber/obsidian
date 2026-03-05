@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { Settings as SettingsIcon, LayoutDashboard, FileText, Play, LineChart } from "lucide-react";
+import { Settings as SettingsIcon, LayoutDashboard, FileText, LineChart, BookOpen } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
 
 export const Navigation = () => {
@@ -10,7 +10,8 @@ export const Navigation = () => {
     { path: "/", icon: LayoutDashboard, label: "Dashboard" },
     { path: "/reports", icon: FileText, label: "Reports" },
     { path: "/trades", icon: LineChart, label: "Trades" },
-    { path: "/replay", icon: Play, label: "Replay" },
+    { path: "/journal", icon: BookOpen, label: "Journal" },
+    // { path: "/replay", icon: Play, label: "Replay" }, // Commented out for now; re-enable when needed
     { path: "/settings", icon: SettingsIcon, label: "Settings" },
   ];
 
