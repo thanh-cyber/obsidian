@@ -1,22 +1,29 @@
 import { useRef, useState, useEffect } from "react";
 import { Trade } from "@/types/trade";
 import { loadTrades, saveTrades, importTrades } from "@/utils/storage";
+import { loadTradeStyleOptions, loadSetupOptions, loadMistakeOptions } from "@/utils/tagOptions";
 import { useFilters } from "@/context/FilterContext";
-import { connectIbkrBridge, getIbkrAutoSyncEnabled, mergeTradesById } from "@/utils/ibkrBridge";
+import { connectIbkrBridge, getIbkrAutoSyncEnabled, getIbkrBridgeUrl, mergeTradesById } from "@/utils/ibkrBridge";
+import { enrichTradesWithYahooQuote } from "@/utils/yahooQuote";
 import { TradesTable } from "@/components/TradesTable";
 import { TradeDetailModal } from "@/components/TradeDetailModal";
+import { TradesMetricsStrip } from "@/components/TradesMetricsStrip";
+import { getOverviewStats } from "@/utils/calculations";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Filter, ChevronDown, Calendar, Info, Check, Upload, Trash2 } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { cn } from "@/lib/utils";
+import { Upload, Trash2, Settings, GripVertical, Check } from "lucide-react";
 import { toast } from "sonner";
+import {
+  ALL_TRADE_COLUMN_LABELS,
+  DEFAULT_TRADE_COLUMN_IDS,
+  labelToId,
+  loadTradesTableColumns,
+  saveTradesTableColumns,
+  type TradeColumnId,
+} from "@/utils/tradesTableColumns";
 
 export const Trades = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -32,6 +39,19 @@ export const Trades = () => {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectedTrade, setSelectedTrade] = useState<Trade | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [columnsDialogOpen, setColumnsDialogOpen] = useState(false);
+  const [visibleColumns, setVisibleColumns] = useState<TradeColumnId[]>(() => loadTradesTableColumns());
+  const [columnsSearch, setColumnsSearch] = useState("");
+  const [columnsDraft, setColumnsDraft] = useState<TradeColumnId[]>(visibleColumns);
+  const draggingColumnIdRef = useRef<TradeColumnId | null>(null);
+
+  const arrayMove = <T,>(arr: T[], from: number, to: number) => {
+    if (from === to) return arr;
+    const next = [...arr];
+    const [item] = next.splice(from, 1);
+    next.splice(to, 0, item);
+    return next;
+  };
 
   useEffect(() => {
     const loadedTrades = loadTrades();
@@ -71,9 +91,10 @@ export const Trades = () => {
   const filteredTrades = globallyFiltered.filter((trade) => {
     if (symbolFilter && !trade.symbol.toLowerCase().includes(symbolFilter.toLowerCase()))
       return false;
-    if (tagFilter !== "all" && (trade.strategyTag ?? "Other") !== tagFilter) return false;
-    if (sideFilter === "long" && trade.positionSize <= 0) return false;
-    if (sideFilter === "short" && trade.positionSize >= 0) return false;
+    if (tagFilter !== "all" && (trade.tradeStyle ?? trade.strategyTag ?? "Other") !== tagFilter) return false;
+    const size = Number(trade.positionSize);
+    if (sideFilter === "long" && (!Number.isFinite(size) || size <= 0)) return false;
+    if (sideFilter === "short" && (!Number.isFinite(size) || size >= 0)) return false;
     if (durationFilter !== "all") {
       const mins = trade.duration;
       if (mins == null) return false;
@@ -94,7 +115,35 @@ export const Trades = () => {
     }
   }, [selectedTrade, filteredTrades]);
 
-  const uniqueTags = Array.from(new Set(trades.map((t) => t.strategyTag ?? "Other")));
+  const openColumnsDialog = () => {
+    setColumnsDraft(visibleColumns);
+    setColumnsSearch("");
+    setColumnsDialogOpen(true);
+  };
+
+  const toggleDraftColumn = (id: TradeColumnId) => {
+    setColumnsDraft((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
+  const removeDraftColumn = (id: TradeColumnId) => {
+    setColumnsDraft((prev) => prev.filter((x) => x !== id));
+  };
+
+  const reorderDraftColumn = (fromId: TradeColumnId, toId: TradeColumnId) => {
+    setColumnsDraft((prev) => {
+      const from = prev.indexOf(fromId);
+      const to = prev.indexOf(toId);
+      if (from < 0 || to < 0) return prev;
+      return arrayMove(prev, from, to);
+    });
+  };
+
+  const saveDraftColumns = () => {
+    const next = columnsDraft.length ? columnsDraft : DEFAULT_TRADE_COLUMN_IDS;
+    setVisibleColumns(next);
+    saveTradesTableColumns(next);
+    setColumnsDialogOpen(false);
+  };
 
   const handleImport = () => {
     fileInputRef.current?.click();
@@ -105,12 +154,39 @@ export const Trades = () => {
     if (!file) return;
     importTrades(
       file,
-      (imported) => {
-        // Replace all trades on import (CSV always has new IDs; JSON may have matches)
-        saveTrades(imported);
-        setTrades(imported);
-        setSelectedIds(new Set());
-        toast.success(`Imported ${imported.length} trades`);
+      async (imported) => {
+        const baseUrl = getIbkrBridgeUrl();
+        if (baseUrl?.trim()) toast.info("Syncing float, market cap & outstanding shares from Yahoo…");
+        try {
+          const enriched = await enrichTradesWithYahooQuote(imported, baseUrl ?? "");
+          const symbolsFetched = new Set(
+            enriched
+              .map((t, i) => {
+                const a = imported[i];
+                if (
+                  (t.float != null && a.float == null) ||
+                  (t.marketCap != null && a.marketCap == null) ||
+                  (t.outstandingShares != null && a.outstandingShares == null)
+                )
+                  return t.symbol;
+                return null;
+              })
+              .filter((s): s is string => s != null)
+          ).size;
+          saveTrades(enriched);
+          setTrades(enriched);
+          setSelectedIds(new Set());
+          if (symbolsFetched > 0) {
+            toast.success(`Imported ${imported.length} trades; filled stock data for ${symbolsFetched} symbols.`);
+          } else {
+            toast.success(`Imported ${imported.length} trades`);
+          }
+        } catch {
+          saveTrades(imported);
+          setTrades(imported);
+          setSelectedIds(new Set());
+          toast.warning(`Imported ${imported.length} trades. Yahoo sync failed (is the bridge running?).`);
+        }
       },
       (err) => toast.error(err)
     );
@@ -142,159 +218,203 @@ export const Trades = () => {
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-bold text-foreground">Trades</h1>
-          <Button
-            onClick={handleImport}
-            className="bg-primary hover:bg-primary/90 text-primary-foreground"
-          >
-            <Upload className="h-4 w-4 mr-2" />
-            Import Trades
-          </Button>
-        </div>
-
-        {/* Filter Bar */}
-        <div className="flex flex-wrap items-center gap-3 mb-4">
-          <Input
-            placeholder="Symbol"
-            value={symbolFilter}
-            onChange={(e) => setSymbolFilter(e.target.value)}
-            className="w-32 h-9 bg-secondary border-border text-sm"
-          />
-          <Select value={tagFilter} onValueChange={setTagFilter}>
-            <SelectTrigger className="w-28 h-9 bg-secondary border-border text-sm">
-              <SelectValue placeholder="Tags" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Select</SelectItem>
-              {uniqueTags.map((tag) => (
-                <SelectItem key={tag} value={tag}>
-                  {tag}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={sideFilter} onValueChange={setSideFilter}>
-            <SelectTrigger className="w-24 h-9 bg-secondary border-border text-sm">
-              <SelectValue placeholder="Side" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All</SelectItem>
-              <SelectItem value="long">Long</SelectItem>
-              <SelectItem value="short">Short</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={durationFilter} onValueChange={setDurationFilter}>
-            <SelectTrigger className="w-24 h-9 bg-secondary border-border text-sm">
-              <SelectValue placeholder="Duration" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All</SelectItem>
-              <SelectItem value="day">Day</SelectItem>
-              <SelectItem value="swing">Swing</SelectItem>
-            </SelectContent>
-          </Select>
-          <div className="flex items-center gap-1">
-            <Calendar className="h-4 w-4 text-muted-foreground" />
-            <Input
-              type="date"
-              placeholder="From"
-              value={fromDate}
-              onChange={(e) => setFromDate(e.target.value)}
-              className="w-32 h-9 bg-secondary border-border text-sm"
-            />
-            <span className="text-muted-foreground text-sm">-</span>
-            <Input
-              type="date"
-              placeholder="To"
-              value={toDate}
-              onChange={(e) => setToDate(e.target.value)}
-              className="w-32 h-9 bg-secondary border-border text-sm"
-            />
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-9 border-border bg-secondary hover:bg-secondary/80"
-          >
-            Custom Filters <ChevronDown className="ml-1 h-3 w-3" />
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-9 border-border bg-secondary hover:bg-secondary/80"
-          >
-            <Filter className="h-4 w-4 mr-1" /> Advanced
-          </Button>
-          <div className="flex-1" />
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-9 w-9 shrink-0 text-destructive hover:text-destructive hover:bg-destructive/10"
-            onClick={handleDeleteSelected}
-            title="Delete selected trades"
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
-          <Button
-            size="icon"
-            className="h-9 w-9 rounded-full bg-primary hover:bg-primary/90 shrink-0"
-          >
-            <Check className="h-4 w-4" />
-          </Button>
-        </div>
-
-        {/* Sub-header with view tabs */}
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-medium text-foreground">Trades</h2>
           <div className="flex items-center gap-2">
-            <Tabs value={viewMode} onValueChange={setViewMode}>
-              <TabsList className="h-9 bg-secondary border border-border p-0.5">
-                <TabsTrigger value="table" className="h-8 px-3 text-sm data-[state=active]:bg-primary/20 data-[state=active]:text-primary">
-                  Table
-                </TabsTrigger>
-                <TabsTrigger value="charts-large" className="h-8 px-3 text-sm">
-                  Charts (large)
-                </TabsTrigger>
-                <TabsTrigger value="charts-small" className="h-8 px-3 text-sm">
-                  Charts (small)
-                </TabsTrigger>
-              </TabsList>
-            </Tabs>
-            <Tabs value={pnlType} onValueChange={setPnlType}>
-              <TabsList className="h-9 bg-secondary border border-border p-0.5 ml-2">
-                <TabsTrigger value="gross" className="h-8 px-3 text-sm">
-                  Gross
-                </TabsTrigger>
-                <TabsTrigger value="net" className="h-8 px-3 text-sm">
-                  Net
-                </TabsTrigger>
-              </TabsList>
-            </Tabs>
-            <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
-              <Info className="h-4 w-4" />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 text-muted-foreground hover:text-foreground"
+              onClick={openColumnsDialog}
+              title="Customize columns"
+            >
+              <Settings className="h-4 w-4" />
+            </Button>
+            <Button
+              onClick={handleImport}
+              className="bg-primary hover:bg-primary/90 text-primary-foreground"
+            >
+              <Upload className="h-4 w-4 mr-2" />
+              Import Trades
             </Button>
           </div>
         </div>
 
-        {/* Trades Table */}
+        {/* Metrics strip + Trades Table */}
         {viewMode === "table" && (
-          <TradesTable
+          <>
+            <TradesMetricsStrip
+              overview={getOverviewStats(filteredTrades)}
+              pnlType={pnlType}
+              tradePnls={[...filteredTrades]
+                .sort((a, b) => new Date(a.exitDate).getTime() - new Date(b.exitDate).getTime())
+                .map((t) => t.pnl)}
+            />
+            <TradesTable
             trades={filteredTrades}
             selectedIds={selectedIds}
             onSelectionChange={setSelectedIds}
+            visibleColumns={visibleColumns}
+            onVisibleColumnsChange={(next) => {
+              setVisibleColumns(next);
+              saveTradesTableColumns(next);
+            }}
             onTradeClick={(trade) => {
               setSelectedTrade(trade);
               setDetailOpen(true);
             }}
+            onTradeUpdate={(updated) => {
+              const next = trades.map((t) => (t.id === updated.id ? updated : t));
+              setTrades(next);
+              saveTrades(next);
+              if (selectedTrade?.id === updated.id) setSelectedTrade(updated);
+            }}
+            tradeStyleOptions={loadTradeStyleOptions()}
+            setupOptions={loadSetupOptions()}
+            mistakeOptions={loadMistakeOptions()}
             className="border border-border rounded-lg overflow-hidden bg-card"
           />
+          </>
         )}
+
+        <Dialog open={columnsDialogOpen} onOpenChange={setColumnsDialogOpen}>
+          <DialogContent className="max-w-4xl p-0 overflow-hidden">
+            <div className="grid grid-cols-1 md:grid-cols-2">
+              <div className="border-b md:border-b-0 md:border-r border-border">
+                <DialogHeader className="p-4 pb-3">
+                  <DialogTitle>Customize Columns</DialogTitle>
+                </DialogHeader>
+                <div className="px-4 pb-3">
+                  <Input
+                    placeholder="Search for a column name"
+                    value={columnsSearch}
+                    onChange={(e) => setColumnsSearch(e.target.value)}
+                  />
+                </div>
+                <ScrollArea className="h-[420px]">
+                  <div className="px-2 pb-3">
+                    {ALL_TRADE_COLUMN_LABELS.filter((label) =>
+                      label.toLowerCase().includes(columnsSearch.trim().toLowerCase())
+                    ).map((label) => {
+                      const id = labelToId(label);
+                      const checked = columnsDraft.includes(id);
+                      return (
+                        <button
+                          key={id}
+                          type="button"
+                          className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-secondary/40 border-t border-border/50"
+                          onClick={() => toggleDraftColumn(id)}
+                        >
+                          <div
+                            className={cn(
+                              "h-4 w-4 rounded-sm border border-border flex items-center justify-center",
+                              checked ? "bg-primary text-primary-foreground border-primary" : "bg-background"
+                            )}
+                            aria-hidden
+                          >
+                            {checked ? <Check className="h-3 w-3" /> : null}
+                          </div>
+                          <span className="text-sm text-foreground">{label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </ScrollArea>
+              </div>
+
+              <div>
+                <div className="p-4 pb-3 flex items-center justify-between gap-2 border-b border-border">
+                  <div className="font-medium text-foreground">Selected Columns</div>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="h-8"
+                    onClick={() => setColumnsDraft([])}
+                  >
+                    Clear Selected
+                  </Button>
+                </div>
+                <ScrollArea className="h-[420px]">
+                  <div className="px-2 pb-3">
+                    {columnsDraft.length === 0 ? (
+                      <div className="p-4 text-sm text-muted-foreground">No columns selected.</div>
+                    ) : (
+                      columnsDraft.map((id) => {
+                        const label =
+                          ALL_TRADE_COLUMN_LABELS.find((l) => labelToId(l) === id) ?? id;
+                        return (
+                          <div
+                            key={id}
+                            className="w-full flex items-center justify-between gap-3 px-4 py-2.5 border-t border-border/50"
+                            onDragOver={(e) => {
+                              e.preventDefault();
+                              const dragging = draggingColumnIdRef.current;
+                              if (!dragging || dragging === id) return;
+                              reorderDraftColumn(dragging, id);
+                            }}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              draggingColumnIdRef.current = null;
+                            }}
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <button
+                                type="button"
+                                className="h-8 w-8 inline-flex items-center justify-center text-muted-foreground hover:text-foreground cursor-grab active:cursor-grabbing"
+                                draggable
+                                onDragStart={(e) => {
+                                  draggingColumnIdRef.current = id;
+                                  e.dataTransfer.effectAllowed = "move";
+                                  e.dataTransfer.setData("text/plain", id);
+                                }}
+                                onDragEnd={() => {
+                                  draggingColumnIdRef.current = null;
+                                }}
+                                title="Drag to reorder"
+                              >
+                                <GripVertical className="h-4 w-4" />
+                              </button>
+                              <span className="text-sm text-foreground truncate">{label}</span>
+                            </div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                              onClick={() => removeDraftColumn(id)}
+                              title="Remove"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </ScrollArea>
+
+                <div className="p-4 flex items-center justify-between gap-2 border-t border-border">
+                  <Button type="button" variant="outline" onClick={() => setColumnsDialogOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button type="button" onClick={saveDraftColumns}>
+                    Save
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
 
         <TradeDetailModal
           trade={selectedTrade}
           trades={filteredTrades}
           open={detailOpen}
           onOpenChange={setDetailOpen}
-          onTradeUpdate={(t) => setSelectedTrade(t)}
+          onTradeUpdate={(updated) => {
+            const next = trades.map((t) => (t.id === updated.id ? updated : t));
+            setSelectedTrade(updated);
+            setTrades(next);
+            saveTrades(next);
+          }}
         />
 
         {viewMode !== "table" && (

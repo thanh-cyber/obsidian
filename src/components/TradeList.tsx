@@ -21,7 +21,8 @@ export const TradeList = ({ trades, onEdit, onDelete }: TradeListProps) => {
   const filteredTrades = trades
     .filter(trade => 
       trade.symbol.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (trade.strategyTag ?? "").toLowerCase().includes(searchTerm.toLowerCase())
+      (trade.tradeStyle ?? trade.strategyTag ?? "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (trade.setups?.join(" ") ?? "").toLowerCase().includes(searchTerm.toLowerCase())
     )
     .sort((a, b) => {
       const aValue = a[sortField];
@@ -119,7 +120,7 @@ export const TradeList = ({ trades, onEdit, onDelete }: TradeListProps) => {
                   </TableCell>
                   <TableCell>
                     <Badge variant="secondary" className="bg-secondary/50">
-                      {trade.strategyTag}
+                      {trade.tradeStyle ?? trade.strategyTag ?? "—"}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">

@@ -222,15 +222,30 @@ export const TradeXChart = ({
       return firstBarMs;
     };
 
-    // Execution markers: snap time to containing bar so markers sit on a bar; keep real price; unique times for setData.
+    // Helper: get bar close at exec time as fallback when execution price is invalid/zero (avoids markers at bottom/volume)
+    const getBarCloseAt = (execTimeMs: number): number | null => {
+      const barStartMs = getBarTimeForExecution(execTimeMs);
+      const idx = barTimesMs.indexOf(barStartMs);
+      if (idx >= 0 && validRows[idx]) {
+        const close = validRows[idx][4];
+        return Number.isFinite(close) && close > 0 ? close : null;
+      }
+      return null;
+    };
+
+    // Execution markers: snap time to containing bar; use real price or bar close fallback (never 0/invalid - would render in volume)
     const markerPoints: { time: Time; value: number }[] = [];
     const sidewaysData: { time: number; price: number; side: 'buy' | 'sell'; text?: string }[] = [];
     if (executionMarkers?.length) {
       const sorted = [...executionMarkers].sort((a, b) => a.time - b.time);
       const barCount = new Map<number, number>();
       for (const m of sorted) {
-        const price = m.price ?? 0;
-        if (!Number.isFinite(price)) continue;
+        let price = Number(m.price ?? 0);
+        if (!Number.isFinite(price) || price <= 0) {
+          const fallback = getBarCloseAt(m.time);
+          if (fallback == null) continue;
+          price = fallback;
+        }
         const barStartMs = getBarTimeForExecution(m.time);
         const barTimeSec = barStartMs / 1000;
         const idx = barCount.get(barStartMs) ?? 0;
@@ -250,15 +265,23 @@ export const TradeXChart = ({
         const barStartMs = getBarTimeForExecution(entry.time);
         const t = barStartMs / 1000;
         entryT = t;
-        markerPoints.push({ time: t as Time, value: entry.price });
-        sidewaysData.push({ time: t, price: entry.price, side: 'buy', text: entry.price.toFixed(2) });
+        let price = Number(entry.price);
+        if (!Number.isFinite(price) || price <= 0) price = getBarCloseAt(entry.time) ?? 0;
+        if (Number.isFinite(price) && price > 0) {
+          markerPoints.push({ time: t as Time, value: price });
+          sidewaysData.push({ time: t, price, side: 'buy', text: price.toFixed(2) });
+        }
       }
       if (exit) {
         const barStartMs = getBarTimeForExecution(exit.time);
         let t = barStartMs / 1000;
         if (entryT !== null && t === entryT) t += 1; // unique time if same bar
-        markerPoints.push({ time: t as Time, value: exit.price });
-        sidewaysData.push({ time: t, price: exit.price, side: 'sell', text: exit.price.toFixed(2) });
+        let price = Number(exit.price);
+        if (!Number.isFinite(price) || price <= 0) price = getBarCloseAt(exit.time) ?? 0;
+        if (Number.isFinite(price) && price > 0) {
+          markerPoints.push({ time: t as Time, value: price });
+          sidewaysData.push({ time: t, price, side: 'sell', text: price.toFixed(2) });
+        }
       }
     }
     if (markerPoints.length > 0) {
@@ -269,11 +292,11 @@ export const TradeXChart = ({
         lastValueVisible: false,
         crosshairMarkerVisible: false,
         priceScaleId: 'right',
-        autoscaleInfoProvider: () => null, // scale from candlestick only → full chart
       });
       markerSeries.setData(markerPoints);
-      const sidewaysPrimitive = new SidewaysMarkersPrimitive(sidewaysData, candlestickSeries);
-      candlestickSeries.attachPrimitive(sidewaysPrimitive as Parameters<typeof candlestickSeries.attachPrimitive>[0]);
+      // Attach primitive to marker series so priceToCoordinate uses marker's scale; avoids markers ending up in volume pane
+      const sidewaysPrimitive = new SidewaysMarkersPrimitive(sidewaysData, markerSeries);
+      markerSeries.attachPrimitive(sidewaysPrimitive as Parameters<typeof markerSeries.attachPrimitive>[0]);
     }
 
     // Add volume histogram at bottom (TraderVue-style)

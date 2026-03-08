@@ -47,7 +47,7 @@ export function buildFullAppContext(trades: Trade[]): string {
     "Acc return %: accReturnPct",
     `accReturnPct=${stats.accReturnPct != null ? fmt(stats.accReturnPct) + "%" : "—"}`,
   ];
-  const mfeMaeList = trades.map((t) => getTradeMfeMae(t));
+  const mfeMaeList = trades.map((t) => getTradeMfeMae(t)).filter((x) => x.fromExecutions);
   const avgMfe = mfeMaeList.length > 0 ? mfeMaeList.reduce((s, x) => s + x.mfe, 0) / mfeMaeList.length : 0;
   const avgMae = mfeMaeList.length > 0 ? mfeMaeList.reduce((s, x) => s + x.mae, 0) / mfeMaeList.length : 0;
   overviewLines.push("Avg position MFE/MAE ($) [from trades]: avgPositionMfe, avgPositionMae");
@@ -56,7 +56,7 @@ export function buildFullAppContext(trades: Trade[]): string {
 
   const strategyMap = new Map<string, { count: number; pnl: number }>();
   trades.forEach((t) => {
-    const key = t.strategyTag ?? "Other";
+    const key = t.tradeStyle ?? t.strategyTag ?? "Other";
     const cur = strategyMap.get(key) ?? { count: 0, pnl: 0 };
     cur.count += 1;
     cur.pnl += Number(t.pnl) || 0;
@@ -117,20 +117,22 @@ export function buildFullAppContext(trades: Trade[]): string {
   }
   sections.push("Columns: symbol, entryDate, exitDate, pnl, pnlPct, durationMin, strategy, positionSize, entryPrice, exitPrice, mfe, mae");
   const tradeRows = tradesToSend.map((t) => {
-    const { mfe, mae } = getTradeMfeMae(t);
+    const { mfe, mae, fromExecutions } = getTradeMfeMae(t);
+    const mfeStr = fromExecutions && Number.isFinite(mfe) ? mfe.toFixed(2) : "n/a";
+    const maeStr = fromExecutions && Number.isFinite(mae) ? mae.toFixed(2) : "n/a";
     return [
       t.symbol,
       t.entryDate.slice(0, 10),
       t.exitDate.slice(0, 10),
       (Number(t.pnl) || 0).toFixed(2),
-      (Number(t.pnlPercentage) ?? 0).toFixed(2),
+      (Number(t.pnlPercentage) || 0).toFixed(2),
       Math.round(Number(t.duration) || 0),
-      t.strategyTag ?? "Other",
+      t.tradeStyle ?? t.strategyTag ?? "Other",
       Number(t.positionSize) || 0,
       (Number(t.entryPrice) || 0).toFixed(2),
       (Number(t.exitPrice) || 0).toFixed(2),
-      mfe.toFixed(2),
-      mae.toFixed(2),
+      mfeStr,
+      maeStr,
     ].join("\t");
   });
   sections.push("symbol\tentryDate\texitDate\tpnl\tpnlPct\tdurationMin\tstrategy\tpositionSize\tentryPrice\texitPrice\tmfe\tmae");

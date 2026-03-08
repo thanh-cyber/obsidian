@@ -1,10 +1,16 @@
 export type SessionRangeMs = { fromMs: number; toMs: number };
 
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/** Days of context before entry and after exit (Tradervue-style zoom-out) */
+const PAD_DAYS_BEFORE = 5;
+const PAD_DAYS_AFTER = 5;
+/** Maximum total range (Polygon allows 50000 bars; 60 days at 15m ≈ 5760 bars) */
+const MAX_RANGE_DAYS = 60;
+
 /**
- * Heuristic "full session" range around a trade.
- *
- * We intentionally use a wide, timezone-agnostic padding so the chart includes
- * premarket/regular/afterhours without needing exchange calendars.
+ * Full session range around a trade with generous padding for context.
+ * Always fetches at least several days before/after so the chart can zoom out like Tradervue.
  */
 export function getFullSessionRangeMs(entryTimeMs: number, exitTimeMs: number): SessionRangeMs {
   const entry = Number(entryTimeMs);
@@ -16,12 +22,12 @@ export function getFullSessionRangeMs(entryTimeMs: number, exitTimeMs: number): 
     return { fromMs: exit, toMs: entry };
   }
 
-  const padMs = 12 * 60 * 60 * 1000; // 12h before entry, 12h after exit (covers extended hours)
-  let fromMs = entry - padMs;
-  let toMs = exit + padMs;
+  const padBeforeMs = PAD_DAYS_BEFORE * MS_PER_DAY;
+  const padAfterMs = PAD_DAYS_AFTER * MS_PER_DAY;
+  let fromMs = entry - padBeforeMs;
+  let toMs = exit + padAfterMs;
 
-  // Polygon limit is high, but keep requests bounded for safety.
-  const maxRangeMs = 30 * 24 * 60 * 60 * 1000; // 30 days
+  const maxRangeMs = MAX_RANGE_DAYS * MS_PER_DAY;
   if (toMs - fromMs > maxRangeMs) {
     const mid = (entry + exit) / 2;
     fromMs = mid - maxRangeMs / 2;

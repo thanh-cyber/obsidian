@@ -148,15 +148,25 @@ export const Replay = () => {
     }
   };
 
-  // Execution markers from original trade (same as TradeDetailModal) for entry/exit fills
+  // Execution markers from original trade (same as TradeDetailModal); ensure price is finite
   const executionMarkers = useMemo(() => {
     if (!selectedTradeOriginal?.executionsList?.length) return undefined;
-    return selectedTradeOriginal.executionsList.map((e) => ({
-      time: new Date(e.dateTime).getTime(),
-      side: (e.qty > 0 ? 'buy' : 'sell') as 'buy' | 'sell',
-      label: e.qty > 0 ? 'BUY' : 'SELL',
-      price: e.price,
-    }));
+    const entryPrice = Number(selectedTradeOriginal.entryPrice);
+    const exitPrice = Number(selectedTradeOriginal.exitPrice);
+    return selectedTradeOriginal.executionsList
+      .map((e) => {
+        const rawPrice = Number(e.price);
+        const price =
+          Number.isFinite(rawPrice) && rawPrice > 0 ? rawPrice : e.qty > 0 ? entryPrice : exitPrice;
+        if (!Number.isFinite(price) || price <= 0) return null;
+        return {
+          time: new Date(e.dateTime).getTime(),
+          side: (e.qty > 0 ? 'buy' : 'sell') as 'buy' | 'sell',
+          label: e.qty > 0 ? 'BUY' : 'SELL',
+          price,
+        };
+      })
+      .filter((m): m is NonNullable<typeof m> => m != null);
   }, [selectedTradeOriginal]);
 
   // Size chart to container (same pattern as TradeDetailModal)

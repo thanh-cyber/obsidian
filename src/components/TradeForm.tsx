@@ -8,23 +8,29 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Trade, StrategyTag } from "@/types/trade";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Trade } from "@/types/trade";
 import { calculatePnL, calculateDuration } from "@/utils/calculations";
+import { loadTradeStyleOptions, loadSetupOptions, loadMistakeOptions } from "@/utils/tagOptions";
 
-const strategies: StrategyTag[] = ["Breakout", "Scalp", "Swing", "Day Trade", "Momentum", "Reversal", "Other"];
+const validNumber = (msg: string) =>
+  z.string().min(1, msg).refine((v) => !Number.isNaN(parseFloat(v)) && Number.isFinite(parseFloat(v)), "Enter a valid number");
 
 const formSchema = z.object({
   symbol: z.string().min(1, "Symbol is required").max(10),
   entryDate: z.string().min(1, "Entry date is required"),
-  entryPrice: z.string().min(1, "Entry price is required"),
+  entryPrice: validNumber("Entry price is required"),
   exitDate: z.string().min(1, "Exit date is required"),
-  exitPrice: z.string().min(1, "Exit price is required"),
-  positionSize: z.string().min(1, "Position size is required"),
-  strategyTag: z.string().min(1, "Strategy is required"),
+  exitPrice: validNumber("Exit price is required"),
+  positionSize: validNumber("Position size is required"),
+  tradeStyle: z.string().min(1, "Trade style is required"),
+  setups: z.array(z.string()).optional(),
+  mistakes: z.array(z.string()).optional(),
   emotionalNotes: z.string().optional(),
-  riskPercentage: z.string().optional(),
-  stopLoss: z.string().optional(),
-  takeProfit: z.string().optional(),
+  riskPercentage: z.string().optional().refine((v) => !v || (!Number.isNaN(parseFloat(v!)) && Number.isFinite(parseFloat(v!))), "Enter a valid number"),
+  stopLoss: z.string().optional().refine((v) => !v || (!Number.isNaN(parseFloat(v!)) && Number.isFinite(parseFloat(v!))), "Enter a valid number"),
+  takeProfit: z.string().optional().refine((v) => !v || (!Number.isNaN(parseFloat(v!)) && Number.isFinite(parseFloat(v!))), "Enter a valid number"),
 });
 
 interface TradeFormProps {
@@ -34,17 +40,25 @@ interface TradeFormProps {
   editTrade?: Trade;
 }
 
+const defaultTradeStyle = () => loadTradeStyleOptions()[0] ?? "Other";
+
 export const TradeForm = ({ open, onOpenChange, onSubmit, editTrade }: TradeFormProps) => {
+  const tradeStyleOptions = loadTradeStyleOptions();
+  const setupOptions = loadSetupOptions();
+  const mistakeOptions = loadMistakeOptions();
+
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: editTrade ? {
       symbol: editTrade.symbol,
       entryDate: editTrade.entryDate,
-      entryPrice: editTrade.entryPrice.toString(),
+      entryPrice: Number.isFinite(Number(editTrade.entryPrice)) ? Number(editTrade.entryPrice).toString() : "",
       exitDate: editTrade.exitDate,
-      exitPrice: editTrade.exitPrice.toString(),
-      positionSize: editTrade.positionSize.toString(),
-      strategyTag: editTrade.strategyTag,
+      exitPrice: Number.isFinite(Number(editTrade.exitPrice)) ? Number(editTrade.exitPrice).toString() : "",
+      positionSize: Number.isFinite(Number(editTrade.positionSize)) ? Number(editTrade.positionSize).toString() : "",
+      tradeStyle: editTrade.tradeStyle ?? editTrade.strategyTag ?? defaultTradeStyle(),
+      setups: editTrade.setups ?? [],
+      mistakes: editTrade.mistakes?.length ? editTrade.mistakes : (editTrade.mistake ? [editTrade.mistake] : []),
       emotionalNotes: editTrade.emotionalNotes || "",
       riskPercentage: editTrade.riskPercentage?.toString() || "",
       stopLoss: editTrade.stopLoss?.toString() || "",
@@ -56,7 +70,9 @@ export const TradeForm = ({ open, onOpenChange, onSubmit, editTrade }: TradeForm
       exitDate: "",
       exitPrice: "",
       positionSize: "",
-      strategyTag: "",
+      tradeStyle: defaultTradeStyle(),
+      setups: [],
+      mistakes: [],
       emotionalNotes: "",
       riskPercentage: "",
       stopLoss: "",
@@ -67,14 +83,19 @@ export const TradeForm = ({ open, onOpenChange, onSubmit, editTrade }: TradeForm
   useEffect(() => {
     if (open) {
       if (editTrade) {
+        const ep = Number(editTrade.entryPrice);
+        const xp = Number(editTrade.exitPrice);
+        const ps = Number(editTrade.positionSize);
         form.reset({
           symbol: editTrade.symbol,
           entryDate: editTrade.entryDate,
-          entryPrice: editTrade.entryPrice.toString(),
+          entryPrice: Number.isFinite(ep) ? ep.toString() : "",
           exitDate: editTrade.exitDate,
-          exitPrice: editTrade.exitPrice.toString(),
-          positionSize: editTrade.positionSize.toString(),
-          strategyTag: editTrade.strategyTag ?? "",
+          exitPrice: Number.isFinite(xp) ? xp.toString() : "",
+          positionSize: Number.isFinite(ps) ? ps.toString() : "",
+          tradeStyle: editTrade.tradeStyle ?? editTrade.strategyTag ?? defaultTradeStyle(),
+          setups: editTrade.setups ?? [],
+          mistakes: editTrade.mistakes?.length ? editTrade.mistakes : (editTrade.mistake ? [editTrade.mistake] : []),
           emotionalNotes: editTrade.emotionalNotes || "",
           riskPercentage: editTrade.riskPercentage?.toString() || "",
           stopLoss: editTrade.stopLoss?.toString() || "",
@@ -88,7 +109,9 @@ export const TradeForm = ({ open, onOpenChange, onSubmit, editTrade }: TradeForm
           exitDate: "",
           exitPrice: "",
           positionSize: "",
-          strategyTag: "",
+          tradeStyle: defaultTradeStyle(),
+          setups: [],
+          mistakes: [],
           emotionalNotes: "",
           riskPercentage: "",
           stopLoss: "",
@@ -96,7 +119,7 @@ export const TradeForm = ({ open, onOpenChange, onSubmit, editTrade }: TradeForm
         });
       }
     }
-  }, [open, editTrade?.id]);
+  }, [open, editTrade?.id, editTrade?.entryDate, editTrade?.exitDate]);
 
   const handleSubmit = (values: z.infer<typeof formSchema>) => {
     const entryPrice = parseFloat(values.entryPrice);
@@ -114,7 +137,11 @@ export const TradeForm = ({ open, onOpenChange, onSubmit, editTrade }: TradeForm
       exitDate: values.exitDate,
       exitPrice,
       positionSize,
-      strategyTag: values.strategyTag,
+      tradeStyle: values.tradeStyle,
+      setups: values.setups?.length ? values.setups : undefined,
+      mistakes: values.mistakes?.length ? values.mistakes : undefined,
+      strategyTag: values.setups?.[0],
+      mistake: values.mistakes?.[0],
       emotionalNotes: values.emotionalNotes || undefined,
       riskPercentage: values.riskPercentage ? parseFloat(values.riskPercentage) : undefined,
       stopLoss: values.stopLoss ? parseFloat(values.stopLoss) : undefined,
@@ -156,24 +183,102 @@ export const TradeForm = ({ open, onOpenChange, onSubmit, editTrade }: TradeForm
               />
               <FormField
                 control={form.control}
-                name="strategyTag"
+                name="tradeStyle"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Strategy</FormLabel>
+                    <FormLabel>Trade Style</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger className="bg-secondary border-border">
-                          <SelectValue placeholder="Select strategy" />
+                          <SelectValue placeholder="Select trade style" />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent className="bg-popover border-border">
-                        {strategies.map((strategy) => (
-                          <SelectItem key={strategy} value={strategy}>
-                            {strategy}
+                        {tradeStyleOptions.map((opt) => (
+                          <SelectItem key={opt} value={opt}>
+                            {opt}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="setups"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Setups (optional)</FormLabel>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <FormControl>
+                          <Button variant="outline" className="w-full justify-start font-normal bg-secondary border-border">
+                            {field.value?.length ? field.value.join(", ") : "Select setups…"}
+                          </Button>
+                        </FormControl>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-56 p-2" align="start">
+                        <div className="max-h-48 overflow-auto space-y-1">
+                          {setupOptions.length === 0 ? (
+                            <p className="text-sm text-muted-foreground">Add setups in Settings</p>
+                          ) : (
+                            setupOptions.map((opt) => (
+                              <label key={opt} className="flex items-center gap-2 cursor-pointer text-sm">
+                                <Checkbox
+                                  checked={field.value?.includes(opt) ?? false}
+                                  onCheckedChange={(checked) => {
+                                    const next = checked
+                                      ? [...(field.value ?? []), opt]
+                                      : (field.value ?? []).filter((x) => x !== opt);
+                                    field.onChange(next);
+                                  }}
+                                />
+                                {opt}
+                              </label>
+                            ))
+                          )}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="mistakes"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Mistakes (optional)</FormLabel>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <FormControl>
+                          <Button variant="outline" className="w-full justify-start font-normal bg-secondary border-border">
+                            {field.value?.length ? field.value.join(", ") : "Select mistakes…"}
+                          </Button>
+                        </FormControl>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-56 p-2" align="start">
+                        <div className="max-h-48 overflow-auto space-y-1">
+                          {mistakeOptions.map((opt) => (
+                            <label key={opt} className="flex items-center gap-2 cursor-pointer text-sm">
+                              <Checkbox
+                                checked={field.value?.includes(opt) ?? false}
+                                onCheckedChange={(checked) => {
+                                  const next = checked
+                                    ? [...(field.value ?? []), opt]
+                                    : (field.value ?? []).filter((x) => x !== opt);
+                                  field.onChange(next);
+                                }}
+                              />
+                              {opt}
+                            </label>
+                          ))}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
                     <FormMessage />
                   </FormItem>
                 )}

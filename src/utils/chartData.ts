@@ -21,6 +21,7 @@ export function generateTradeChartData(
   barIntervalMs: number = TIMEFRAME_MS['5m']
 ): Array<[number, number, number, number, number, number]> {
   if (!Number.isFinite(entryTime) || !Number.isFinite(exitTime)) return [];
+  if (!Number.isFinite(entryPrice) || !Number.isFinite(exitPrice)) return [];
   const barInterval = Math.max(barIntervalMs, 60_000);
   const padBars = 3;
   const startTime = entryTime - padBars * barInterval;

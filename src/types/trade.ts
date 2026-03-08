@@ -17,7 +17,16 @@ export interface Trade {
   exitDate: string;
   exitPrice: number;
   positionSize: number;
-  strategyTag: string;
+  /** Legacy single strategy/setup; prefer setups[] and tradeStyle */
+  strategyTag?: string;
+  /** Style of trade: Swing, Day Trade, etc. (fixed list in Trade Style column) */
+  tradeStyle?: string;
+  /** User-defined setup tags (multi-select); add your own in Settings → Setups */
+  setups?: string[];
+  /** User-selected mistake tags (multi-select) */
+  mistakes?: string[];
+  /** Legacy single mistake; prefer mistakes[] */
+  mistake?: string;
   emotionalNotes?: string;
   riskPercentage?: number;
   stopLoss?: number;
@@ -41,6 +50,14 @@ export interface Trade {
   spxOpeningGapDollars?: number;
   /** SPX opening gap % on trade date */
   spxOpeningGapPercent?: number;
+  /** Float (share float) from stock data import – per ticker/date */
+  float?: number;
+  /** Market cap from stock data import – per ticker/date */
+  marketCap?: number;
+  /** Shares outstanding from stock data import – per ticker/date */
+  outstandingShares?: number;
+  /** When true, Outstanding Shares column shows "—" instead of 3-digit fallback (position size) */
+  outstandingSharesHidden?: boolean;
 }
 
 export type StrategyTag = 

@@ -62,6 +62,12 @@ export const Journal = () => {
     }
   }, [dateKeys, selectedDateKey]);
 
+  useEffect(() => {
+    if (selectedDateKey !== null && !dateKeys.includes(selectedDateKey)) {
+      setSelectedDateKey(dateKeys.length > 0 ? dateKeys[0] : null);
+    }
+  }, [dateKeys, selectedDateKey]);
+
   // When selected day changes: save previous day's content, load new day's content
   useEffect(() => {
     const prevKey = selectedDateKeyRef.current;

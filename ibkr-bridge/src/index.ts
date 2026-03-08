@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { IbkrClient, loadIbkrConfig } from './ibkrClient.js';
 import { TradeBuilder } from './tradeBuilder.js';
 import { getYahooGapForDate } from './yahooGap.js';
+import { getYahooQuoteForSymbol } from './yahooQuote.js';
 import type { BridgeMessage, IbkrBridgeStatus } from './types.js';
 
 const ServerEnvSchema = z.object({
@@ -80,6 +81,28 @@ const server = http.createServer((req, res) => {
     }
     res.writeHead(400, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: false, error: 'Missing or invalid date (YYYY-MM-DD)' }));
+    return;
+  }
+
+  if (req.url?.startsWith('/api/yahoo-quote')) {
+    const url = new URL(req.url, `http://${req.headers.host ?? 'localhost'}`);
+    const symbol = url.searchParams.get('symbol');
+    if (symbol && symbol.trim()) {
+      getYahooQuoteForSymbol(symbol.trim())
+        .then((data) => {
+          if (res.writableEnded) return;
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true, ...data }));
+        })
+        .catch((err) => {
+          if (res.writableEnded) return;
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: String(err?.message ?? err) }));
+        });
+      return;
+    }
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: false, error: 'Missing or invalid symbol' }));
     return;
   }
 

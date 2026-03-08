@@ -13,7 +13,7 @@ import { ChartErrorBoundary } from "@/components/ChartErrorBoundary";
 import { TIMEFRAME_MS, type TimeframeKey } from "@/utils/chartData";
 import { fetchPolygonBars } from "@/utils/polygon";
 import { getFullSessionRangeMs } from "@/utils/sessionRange";
-import { getTradeMfeMae } from "@/utils/calculations";
+import { getTradeMfeMae, getTradeRunningPnlSeries } from "@/utils/calculations";
 import { type IndicatorKey } from "@/utils/indicatorPresets";
 import { getDefaultIndicatorSettings, type IndicatorSettings } from "@/utils/indicatorSettingsSchema";
 import { IndicatorsDialog } from "@/components/IndicatorsDialog";
@@ -39,8 +39,17 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import { loadTrades, saveTrades } from "@/utils/storage";
 import { toast } from "sonner";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  ReferenceLine,
+} from "recharts";
 
 interface TradeDetailModalProps {
   trade: Trade | null;
@@ -242,23 +251,48 @@ export function TradeDetailModal({
     [exitPrice, exitTime, exitValid]
   );
 
+  const runningPnlChartData = useMemo(() => {
+    if (!trade) return [];
+    const raw = getTradeRunningPnlSeries(trade, chartData.length > 0 ? chartData : undefined);
+    return raw.map(({ timeMs, pnl }) => ({
+      timeMs,
+      timeLabel: formatAppDateTime(new Date(timeMs)),
+      pnl: Math.round(pnl * 100) / 100,
+      pnlPositive: pnl >= 0 ? pnl : null,
+      pnlNegative: pnl < 0 ? pnl : null,
+    }));
+  }, [trade, chartData]);
+
+  // Use bar-based MFE/MAE when chart data exists (matches Trade Running P&L); otherwise use fill-based
+  const { mfe: displayMfe, mae: displayMae } = useMemo(() => {
+    if (trade && runningPnlChartData.length > 0) {
+      const pnls = runningPnlChartData.map((d) => d.pnl).filter((p) => Number.isFinite(p));
+      if (pnls.length > 0) {
+        const maxPnl = Math.max(...pnls);
+        const minPnl = Math.min(...pnls);
+        return { mfe: maxPnl > 0 ? maxPnl : 0, mae: minPnl < 0 ? minPnl : 0 };
+      }
+    }
+    return trade ? getTradeMfeMae(trade) : { mfe: NaN, mae: NaN, fromExecutions: false };
+  }, [trade, runningPnlChartData]);
+
   const handleSaveNotes = useCallback(() => {
     if (!trade) return;
     const updated = { ...trade, emotionalNotes: notes };
-    const all = loadTrades();
-    const idx = all.findIndex((t) => t.id === trade.id);
-    if (idx >= 0) {
-      all[idx] = updated;
-      saveTrades(all);
-      onTradeUpdate?.(updated);
-      setIsEditingNotes(false);
-      toast.success("Notes saved");
-    }
+    onTradeUpdate?.(updated);
+    setIsEditingNotes(false);
+    toast.success("Notes saved");
   }, [trade, notes, onTradeUpdate]);
 
   const handleShare = useCallback(() => {
     if (!trade) return;
-    const text = `${trade.symbol} | Entry: ${formatAppDateTime(new Date(trade.entryDate))} @ $${trade.entryPrice.toFixed(2)} | Exit: ${formatAppDateTime(new Date(trade.exitDate))} @ $${trade.exitPrice.toFixed(2)} | P&L: $${trade.pnl.toFixed(2)}`;
+    const ep = Number(trade.entryPrice);
+    const xp = Number(trade.exitPrice);
+    const pnl = Number(trade.pnl);
+    const epFmt = Number.isFinite(ep) ? ep.toFixed(2) : "—";
+    const xpFmt = Number.isFinite(xp) ? xp.toFixed(2) : "—";
+    const pnlFmt = Number.isFinite(pnl) ? pnl.toFixed(2) : "—";
+    const text = `${trade.symbol} | Entry: ${formatAppDateTime(new Date(trade.entryDate))} @ $${epFmt} | Exit: ${formatAppDateTime(new Date(trade.exitDate))} @ $${xpFmt} | P&L: $${pnlFmt}`;
     navigator.clipboard?.writeText(text).then(
       () => toast.success("Copied to clipboard"),
       () => toast.error("Failed to copy")
@@ -267,18 +301,30 @@ export function TradeDetailModal({
 
   const executionMarkers = useMemo(() => {
     if (!trade?.executionsList?.length) return undefined;
-    // Use raw execution time (no bar snapping) so markers appear at exact moment & don't overlap
-    return trade.executionsList.map((e) => ({
-      time: new Date(e.dateTime).getTime(),
-      side: (e.qty > 0 ? "buy" : "sell") as "buy" | "sell",
-      label: e.qty > 0 ? "BUY" : "SELL",
-      price: e.price,
-    }));
-  }, [trade?.executionsList]);
+    const entryPrice = Number(trade.entryPrice);
+    const exitPrice = Number(trade.exitPrice);
+    // Use raw execution time (no bar snapping); ensure price is finite or fallback to entry/exit
+    return trade.executionsList
+      .map((e) => {
+        const rawPrice = Number(e.price);
+        const price = Number.isFinite(rawPrice) && rawPrice > 0
+          ? rawPrice
+          : (e.qty > 0 ? entryPrice : exitPrice);
+        if (!Number.isFinite(price) || price <= 0) return null;
+        return {
+          time: new Date(e.dateTime).getTime(),
+          side: (e.qty > 0 ? "buy" : "sell") as "buy" | "sell",
+          label: e.qty > 0 ? "BUY" : "SELL",
+          price,
+        };
+      })
+      .filter((m): m is NonNullable<typeof m> => m != null);
+  }, [trade?.executionsList, trade?.entryPrice, trade?.exitPrice]);
 
   if (!trade) return null;
 
   const formatPnL = (val: number) => {
+    if (!Number.isFinite(val)) return <span className="text-muted-foreground">—</span>;
     if (val > 0) return <span className="text-emerald-500">${val.toFixed(2)}</span>;
     if (val < 0) return <span className="text-red-500">${val.toFixed(2)}</span>;
     return <span className="text-muted-foreground">$0.00</span>;
@@ -369,17 +415,17 @@ export function TradeDetailModal({
                 <div className="text-muted-foreground">Shares Traded</div>
                 <div className="text-foreground font-medium">{Math.abs(trade.positionSize)}</div>
                 <div className="text-muted-foreground">Commissions / Fees</div>
-                <div className="text-foreground">$0.00</div>
+                <div className="text-foreground">${(trade.executionsList?.reduce((s, e) => s + (e.fees ?? 0), 0) ?? 0).toFixed(2)}</div>
                 <div className="text-muted-foreground">Closed Gross P&L</div>
                 <div>{formatPnL(trade.pnl)}</div>
                 <div className="text-muted-foreground">Closed Net P&L</div>
-                <div>{formatPnL(trade.pnl)}</div>
+                <div>{formatPnL((Number(trade.pnl) || 0) - (trade.executionsList?.reduce((s, e) => s + (e.fees ?? 0), 0) ?? 0))}</div>
                 <div className="text-muted-foreground">Best Exit P&L</div>
                 <div className="text-muted-foreground italic">Not yet calculated</div>
                 <div className="text-muted-foreground">Position MFE</div>
-                <div>{formatPnL(getTradeMfeMae(trade).mfe)}</div>
+                <div>{!Number.isFinite(displayMfe) ? <span className="text-muted-foreground italic">Not yet calculated</span> : formatPnL(displayMfe)}</div>
                 <div className="text-muted-foreground">Position MAE</div>
-                <div>{formatPnL(getTradeMfeMae(trade).mae)}</div>
+                <div>{!Number.isFinite(displayMae) ? <span className="text-muted-foreground italic">Not yet calculated</span> : formatPnL(displayMae)}</div>
               </div>
             </div>
             <div className="rounded-lg border border-border bg-secondary/30 p-4">
@@ -414,6 +460,64 @@ export function TradeDetailModal({
               )}
             </div>
           </div>
+
+          {/* Trade Running P&L */}
+          {runningPnlChartData.length > 0 && (
+            <div className="rounded-lg border border-border bg-secondary/30 p-4">
+              <h3 className="text-sm font-medium text-foreground mb-3">Trade Running P&L</h3>
+              <div className="h-[220px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart
+                    data={runningPnlChartData}
+                    margin={{ top: 8, right: 8, left: 8, bottom: 8 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                    <XAxis
+                      dataKey="timeLabel"
+                      stroke="hsl(var(--muted-foreground))"
+                      tick={{ fontSize: 10 }}
+                      interval="preserveStartEnd"
+                    />
+                    <YAxis
+                      stroke="hsl(var(--muted-foreground))"
+                      tick={{ fontSize: 10 }}
+                      tickFormatter={(v) => `$${v}`}
+                      domain={["auto", "auto"]}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: "hsl(var(--popover))",
+                        border: "1px solid hsl(var(--border))",
+                        borderRadius: "8px",
+                      }}
+                      labelFormatter={(_, payload) => payload?.[0]?.payload?.timeLabel ?? ""}
+                      formatter={(value: number, name, props) => {
+                        const pnl = props.payload?.pnl;
+                        return [typeof pnl === "number" ? `$${pnl.toFixed(2)}` : "—", "P&L"];
+                      }}
+                    />
+                    <ReferenceLine y={0} stroke="hsl(var(--foreground))" strokeWidth={1.5} />
+                    <Line
+                      type="monotone"
+                      dataKey="pnlPositive"
+                      stroke="hsl(var(--chart-2))"
+                      strokeWidth={2}
+                      dot={false}
+                      connectNulls={false}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="pnlNegative"
+                      stroke="hsl(var(--destructive))"
+                      strokeWidth={2}
+                      dot={false}
+                      connectNulls={false}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
 
           {/* Chart */}
           <div className="rounded-lg border border-border bg-secondary/30 p-4">

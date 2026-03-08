@@ -107,7 +107,7 @@ export const METRICS: MetricDef[] = [
 export function getGroupKey(trade: Trade, groupBy: GroupByOption): string {
   switch (groupBy) {
     case "strategy":
-      return trade.strategyTag ?? "Other";
+      return trade.tradeStyle ?? trade.strategyTag ?? "Other";
     case "month": {
       const d = new Date(trade.exitDate);
       return d.toLocaleDateString("en-US", { month: "short", year: "numeric" });

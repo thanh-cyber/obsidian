@@ -152,7 +152,7 @@ export const AnalyticsContent = ({ trades }: AnalyticsContentProps) => {
   ];
 
   const strategyData = trades.reduce((acc, trade) => {
-    const strategy = trade.strategyTag ?? "Other";
+    const strategy = trade.tradeStyle ?? trade.strategyTag ?? "Other";
     const existing = acc.find((s) => s.strategy === strategy);
     if (existing) {
       existing.pnl += trade.pnl;

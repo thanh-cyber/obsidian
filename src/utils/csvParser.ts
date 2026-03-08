@@ -180,6 +180,7 @@ function finalizeTrade(
   const last = execs[execs.length - 1];
   const entryDate = parseDate(first.tradeDate, first.execTime);
   const exitDate = parseDate(last.tradeDate, last.execTime);
+  if (!Number.isFinite(entryDate.getTime()) || !Number.isFinite(exitDate.getTime())) return;
   const pnl = execs.reduce((s, e) => s + e.netProceeds, 0);
   const duration = Math.round((exitDate.getTime() - entryDate.getTime()) / 60000);
 
@@ -230,6 +231,7 @@ function finalizeTrade(
     exitDate: exitDate.toISOString(),
     exitPrice,
     positionSize,
+    tradeStyle: strategyTag,
     strategyTag,
     emotionalNotes: note || undefined,
     pnl,

@@ -15,7 +15,20 @@ import {
   testIbkrBridge,
 } from "@/utils/ibkrBridge";
 import { enrichTradesWithGapData } from "@/utils/yahooGap";
+import { enrichTradesWithYahooQuote } from "@/utils/yahooQuote";
+import {
+  parseStockDataXlsx,
+  mergeStockDataIntoTrades,
+  buildStockDataLookupKey,
+  getTradeStockDataKey,
+} from "@/utils/stockDataImport";
 import { Trade } from "@/types/trade";
+import {
+  loadCustomSetups,
+  saveCustomSetups,
+  loadMistakeOptions,
+  saveMistakeOptions,
+} from "@/utils/tagOptions";
 import { toast } from "sonner";
 import {
   Select,
@@ -47,6 +60,13 @@ export const Settings = () => {
   const [ibkrTesting, setIbkrTesting] = useState(false);
   const [gapLoading, setGapLoading] = useState(false);
   const [gapStatus, setGapStatus] = useState<string>("");
+  const [stockDataLoading, setStockDataLoading] = useState(false);
+  const [yahooQuoteLoading, setYahooQuoteLoading] = useState(false);
+  const [yahooQuoteStatus, setYahooQuoteStatus] = useState<string>("");
+  const [customSetups, setCustomSetups] = useState<string[]>(() => loadCustomSetups());
+  const [customMistakes, setCustomMistakes] = useState<string[]>(() => loadMistakeOptions());
+  const [newSetupName, setNewSetupName] = useState("");
+  const [newMistakeName, setNewMistakeName] = useState("");
 
   useEffect(() => {
     setTrades(loadTrades());
@@ -71,13 +91,41 @@ export const Settings = () => {
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    e.target.value = "";
 
     importTrades(
       file,
-      (importedTrades) => {
-        setTrades(importedTrades);
-        saveTrades(importedTrades);
-        toast.success(`Imported ${importedTrades.length} trades successfully`);
+      async (importedTrades) => {
+        const baseUrl = getIbkrBridgeUrl();
+        if (baseUrl?.trim()) toast.info("Syncing float, market cap & outstanding shares from Yahoo…");
+        try {
+          const enriched = await enrichTradesWithYahooQuote(importedTrades, baseUrl ?? "");
+          const symbolsFetched = new Set(
+            enriched
+              .map((t, i) => {
+                const a = importedTrades[i];
+                if (
+                  (t.float != null && a.float == null) ||
+                  (t.marketCap != null && a.marketCap == null) ||
+                  (t.outstandingShares != null && a.outstandingShares == null)
+                )
+                  return t.symbol;
+                return null;
+              })
+              .filter((s): s is string => s != null)
+          ).size;
+          setTrades(enriched);
+          saveTrades(enriched);
+          if (symbolsFetched > 0) {
+            toast.success(`Imported ${importedTrades.length} trades; filled stock data for ${symbolsFetched} symbols.`);
+          } else {
+            toast.success(`Imported ${importedTrades.length} trades successfully`);
+          }
+        } catch {
+          setTrades(importedTrades);
+          saveTrades(importedTrades);
+            toast.warning(`Imported ${importedTrades.length} trades. Yahoo sync failed (is the bridge running?).`);
+        }
       },
       (error) => {
         toast.error(error);
@@ -136,6 +184,123 @@ export const Settings = () => {
     }
   };
 
+  const handleFetchMissingStockData = async () => {
+    if (trades.length === 0) {
+      toast.error("No trades to enrich");
+      return;
+    }
+    setYahooQuoteLoading(true);
+    setYahooQuoteStatus("");
+    try {
+      const before = trades;
+      const enriched = await enrichTradesWithYahooQuote(
+        before,
+        ibkrBridgeUrl?.trim() ?? "",
+        (done, total, symbol) => setYahooQuoteStatus(total ? `${done}/${total} ${symbol || ""}` : "")
+      );
+      const symbolsFetched = new Set(
+        enriched
+          .map((t, i) => {
+            const a = before[i];
+            if (
+              (t.float != null && a.float == null) ||
+              (t.marketCap != null && a.marketCap == null) ||
+              (t.outstandingShares != null && a.outstandingShares == null)
+            )
+              return t.symbol;
+            return null;
+          })
+          .filter((s): s is string => s != null)
+      ).size;
+      saveTrades(enriched);
+      setTrades(enriched);
+      if (symbolsFetched > 0) {
+        toast.success(`Filled float / market cap / outstanding for ${symbolsFetched} symbol(s).`);
+      } else {
+        toast.info("No missing data found—all tickers already have float, market cap, and outstanding shares.");
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to fetch from Yahoo (is the bridge running?)");
+    } finally {
+      setYahooQuoteLoading(false);
+      setYahooQuoteStatus("");
+    }
+  };
+
+  const handleClearThreeDigitOutstanding = () => {
+    let cleared = 0;
+    const updated = trades.map((t) => {
+      const o = t.outstandingShares;
+      const absSize = t.positionSize != null ? Math.abs(Number(t.positionSize)) : NaN;
+      const displayedWouldBeThreeDigit =
+        (typeof o === "number" && o >= 100 && o <= 999) ||
+        (Number.isFinite(absSize) && absSize >= 100 && absSize <= 999);
+      if (!displayedWouldBeThreeDigit) return t;
+      cleared++;
+      if (typeof o === "number" && o >= 100 && o <= 999) {
+        const { outstandingShares: _, ...rest } = t;
+        return { ...rest, outstandingSharesHidden: true };
+      }
+      return { ...t, outstandingSharesHidden: true };
+    });
+    saveTrades(updated);
+    setTrades(updated);
+    toast.success(`Cleared outstanding shares for ${cleared} trades (3-digit values hidden).`);
+  };
+
+  const handleImportStockData = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const current = loadTrades();
+    if (current.length === 0) {
+      toast.error("No trades to merge. Import trades first.");
+      e.target.value = "";
+      return;
+    }
+    setStockDataLoading(true);
+    parseStockDataXlsx(file)
+      .then((rows) => {
+        const merged = mergeStockDataIntoTrades(current, rows);
+        let updated = 0;
+        for (let i = 0; i < current.length; i++) {
+          const a = current[i];
+          const b = merged[i];
+          if (
+            (b.float !== undefined && b.float !== a.float) ||
+            (b.marketCap !== undefined && b.marketCap !== a.marketCap) ||
+            (b.outstandingShares !== undefined && b.outstandingShares !== a.outstandingShares)
+          )
+            updated++;
+        }
+        saveTrades(merged);
+        setTrades(merged);
+        if (updated === 0 && rows.length > 0 && current.length > 0) {
+          const excelSamples = rows.slice(0, 5).map((r) => buildStockDataLookupKey(r.symbol, r.dateKey));
+          const tradeSamples = current.slice(0, 5).map(getTradeStockDataKey);
+          console.warn(
+            "Stock data: 0 matches. Sample Excel keys (symbol|date):",
+            excelSamples,
+            "Sample trade keys:",
+            tradeSamples
+          );
+          toast.warning(
+            `Imported ${rows.length} rows but 0 trades matched. Open browser console (F12) to see sample keys and compare symbol + date format.`
+          );
+        } else {
+          toast.success(
+            `Stock data imported: ${rows.length} rows, ${updated} trades updated with float/market cap/outstanding.`
+          );
+        }
+      })
+      .catch((err) => {
+        toast.error(err instanceof Error ? err.message : "Failed to parse Excel file");
+      })
+      .finally(() => {
+        setStockDataLoading(false);
+        e.target.value = "";
+      });
+  };
+
   return (
     <>
       <div className="min-h-full bg-background p-6">
@@ -189,6 +354,146 @@ export const Settings = () => {
               <p className="text-sm text-muted-foreground">
                 Download all your trades for backup or analysis in external tools
               </p>
+            </div>
+
+            {/* Setups & Mistakes */}
+            <div className="space-y-4 pt-4 border-t border-border">
+              <Label className="text-base font-semibold">Setups &amp; Mistakes</Label>
+              <p className="text-sm text-muted-foreground">
+                Add your own Setups (e.g. chart patterns, rules) and Mistakes. Setups start empty—add options here to use in the Setups column. Trade Style (Swing, Day Trade, etc.) is a separate column with a fixed list.
+              </p>
+              <div className="grid gap-6 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Custom Setups</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="New setup name"
+                      value={newSetupName}
+                      onChange={(e) => setNewSetupName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          const t = newSetupName.trim();
+                          if (t && !customSetups.includes(t)) {
+                            const next = [...customSetups, t];
+                            setCustomSetups(next);
+                            saveCustomSetups(next);
+                            setNewSetupName("");
+                            toast.success(`Added setup "${t}"`);
+                          }
+                        }
+                      }}
+                      className="bg-secondary border-border"
+                    />
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={() => {
+                        const t = newSetupName.trim();
+                        if (t && !customSetups.includes(t)) {
+                          const next = [...customSetups, t];
+                          setCustomSetups(next);
+                          saveCustomSetups(next);
+                          setNewSetupName("");
+                          toast.success(`Added setup "${t}"`);
+                        }
+                      }}
+                    >
+                      Add
+                    </Button>
+                  </div>
+                  <ul className="text-sm text-muted-foreground space-y-1 mt-2">
+                    {customSetups.length === 0 ? (
+                      <li>No custom setups yet</li>
+                    ) : (
+                      customSetups.map((name) => (
+                        <li key={name} className="flex items-center justify-between gap-2 py-0.5">
+                          <span>{name}</span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 text-destructive hover:text-destructive"
+                            onClick={() => {
+                              const next = customSetups.filter((x) => x !== name);
+                              setCustomSetups(next);
+                              saveCustomSetups(next);
+                              toast.success(`Removed "${name}"`);
+                            }}
+                          >
+                            Remove
+                          </Button>
+                        </li>
+                      ))
+                    )}
+                  </ul>
+                </div>
+                <div className="space-y-2">
+                  <Label>Mistakes</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="New mistake option"
+                      value={newMistakeName}
+                      onChange={(e) => setNewMistakeName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          const t = newMistakeName.trim();
+                          if (t && !customMistakes.includes(t)) {
+                            const next = [...customMistakes, t];
+                            setCustomMistakes(next);
+                            saveMistakeOptions(next);
+                            setNewMistakeName("");
+                            toast.success(`Added mistake "${t}"`);
+                          }
+                        }
+                      }}
+                      className="bg-secondary border-border"
+                    />
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={() => {
+                        const t = newMistakeName.trim();
+                        if (t && !customMistakes.includes(t)) {
+                          const next = [...customMistakes, t];
+                          setCustomMistakes(next);
+                          saveMistakeOptions(next);
+                          setNewMistakeName("");
+                          toast.success(`Added mistake "${t}"`);
+                        }
+                      }}
+                    >
+                      Add
+                    </Button>
+                  </div>
+                  <ul className="text-sm text-muted-foreground space-y-1 mt-2">
+                    {customMistakes.length === 0 ? (
+                      <li>No mistakes defined yet</li>
+                    ) : (
+                      customMistakes.map((name) => (
+                        <li key={name} className="flex items-center justify-between gap-2 py-0.5">
+                          <span>{name}</span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 text-destructive hover:text-destructive"
+                            onClick={() => {
+                              const next = customMistakes.filter((x) => x !== name);
+                              setCustomMistakes(next);
+                              saveMistakeOptions(next);
+                              toast.success(`Removed "${name}"`);
+                            }}
+                          >
+                            Remove
+                          </Button>
+                        </li>
+                      ))
+                    )}
+                  </ul>
+                </div>
+              </div>
             </div>
 
             {/* Import Settings (CSV grouping) */}
@@ -314,8 +619,64 @@ export const Settings = () => {
               </div>
             </div>
 
+            {/* Fetch from Yahoo (float, mcap, outstanding) */}
+            <div className="space-y-3 pt-4 border-t border-border">
+              <Label className="text-base font-semibold">Fetch from Yahoo Finance</Label>
+              <p className="text-sm text-muted-foreground">
+                Fill float, market cap, and outstanding shares for tickers that don’t have them. Requires the bridge: set <strong>Bridge URL</strong> above (e.g. <code className="text-xs bg-muted px-1 rounded">http://localhost:4010</code>) and run <code className="text-xs bg-muted px-1 rounded">cd ibkr-bridge &amp;&amp; npm run dev</code> in a terminal.
+              </p>
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={handleFetchMissingStockData}
+                  disabled={yahooQuoteLoading || trades.length === 0 || !ibkrBridgeUrl?.trim()}
+                >
+                  {yahooQuoteLoading ? "Fetching…" : "Fetch missing from Yahoo"}
+                </Button>
+                {yahooQuoteStatus && (
+                  <span className="text-xs text-muted-foreground">{yahooQuoteStatus}</span>
+                )}
+              </div>
+            </div>
+
+            {/* Import stock data from Excel */}
+            <div className="space-y-3 pt-4 border-t border-border">
+              <Label htmlFor="stock-data-import" className="text-base font-semibold">
+                Import stock data from Excel (Float, Market Cap, Outstanding)
+              </Label>
+              <p className="text-sm text-muted-foreground">
+                Choose your Excel file (e.g. Final Output.xlsx). Trades are matched by symbol and exit date.
+              </p>
+              <div className="flex flex-wrap items-center gap-3">
+                <Input
+                  id="stock-data-import"
+                  type="file"
+                  accept=".xlsx"
+                  onChange={handleImportStockData}
+                  disabled={stockDataLoading || trades.length === 0}
+                  className="bg-secondary border-border"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleClearThreeDigitOutstanding}
+                  disabled={trades.length === 0}
+                >
+                  Clear 3-digit outstanding shares
+                </Button>
+                {stockDataLoading && (
+                  <span className="text-xs text-muted-foreground">Processing…</span>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Clear 3-digit outstanding shares: removes values between 100–999 (often position size mistaken for shares).
+              </p>
+            </div>
+
             {/* Import Section */}
-            <div className="space-y-3">
+            <div className="space-y-3 pt-4 border-t border-border">
               <Label htmlFor="import" className="text-base font-semibold">
                 Import Trades
               </Label>
@@ -329,7 +690,7 @@ export const Settings = () => {
                 />
               </div>
               <p className="text-sm text-muted-foreground">
-                Import from JSON (replace) or CSV (broker export). Merge mode applies to CSV imports.
+                Import from JSON (replace) or CSV (broker export). Merge mode applies to CSV imports. If the bridge is running, import will also sync float, market cap, and outstanding shares from Yahoo for tickers that don't have that data.
               </p>
             </div>
 

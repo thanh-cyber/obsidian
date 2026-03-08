@@ -33,7 +33,7 @@ export async function fetchPolygonBars(
   apiKey: string
 ): Promise<ChartBar[]> {
   const { multiplier, timespan } = TIMEFRAME_TO_POLYGON[timeframe];
-  const url = `https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(symbol.toUpperCase())}/range/${multiplier}/${timespan}/${fromMs}/${toMs}?adjusted=true&sort=asc&limit=50000`;
+  const url = `https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(symbol.toUpperCase())}/range/${multiplier}/${timespan}/${fromMs}/${toMs}?adjusted=false&sort=asc&limit=50000`;
 
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${apiKey}` },

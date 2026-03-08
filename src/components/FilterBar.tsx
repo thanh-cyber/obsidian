@@ -55,7 +55,7 @@ export function FilterBar() {
     const s = Array.from(new Set(trades.map((t) => t.symbol).filter(Boolean)));
     s.sort();
     setSymbols(s);
-    const st = Array.from(new Set(trades.map((t) => t.strategyTag ?? "Other")));
+    const st = Array.from(new Set(trades.map((t) => t.tradeStyle ?? t.strategyTag ?? "Other")));
     st.sort();
     setSetups(st);
   }, []);

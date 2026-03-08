@@ -23,16 +23,13 @@ function formatDollar(v: number): string {
 }
 
 export function MfeMaeCharts({ trades }: MfeMaeChartsProps) {
-  const points = trades.map((t) => {
-    const grossReturn = Number(t.pnl) || 0;
-    const { mfe, mae } = getTradeMfeMae(t);
-    return {
-      grossReturn,
-      mfe,
-      mae,
-      name: t.symbol || t.id,
-    };
-  });
+  const points = trades
+    .map((t) => {
+      const grossReturn = Number(t.pnl) || 0;
+      const { mfe, mae, fromExecutions } = getTradeMfeMae(t);
+      return { trade: t, grossReturn, mfe, mae, name: t.symbol || t.id, fromExecutions };
+    })
+    .filter((p) => p.fromExecutions && Number.isFinite(p.mfe) && Number.isFinite(p.mae));
 
   const mfeData = points.map((p) => ({ x: p.grossReturn, y: p.mfe, name: p.name }));
   const maeData = points.map((p) => ({ x: p.grossReturn, y: p.mae, name: p.name }));

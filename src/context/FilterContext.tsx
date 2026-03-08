@@ -178,8 +178,10 @@ export function FilterProvider({ children }: { children: ReactNode }) {
           filters;
 
         if (side.long || side.short) {
-          const isLong = trade.positionSize > 0;
-          const isShort = trade.positionSize < 0;
+          const pos = Number(trade.positionSize);
+          if (!Number.isFinite(pos)) return false;
+          const isLong = pos > 0;
+          const isShort = pos < 0;
           if (side.long && !side.short && !isLong) return false;
           if (side.short && !side.long && !isShort) return false;
           if (side.long && side.short && !isLong && !isShort) return false;
@@ -199,7 +201,7 @@ export function FilterProvider({ children }: { children: ReactNode }) {
         }
 
         if (symbols.size > 0 && !symbols.has(trade.symbol)) return false;
-        if (setups.size > 0 && !setups.has(trade.strategyTag ?? "Other")) return false;
+        if (setups.size > 0 && !setups.has(trade.tradeStyle ?? trade.strategyTag ?? "Other")) return false;
 
         const exitKey = getAppDateKey(new Date(trade.exitDate));
 
@@ -293,7 +295,10 @@ export function FilterProvider({ children }: { children: ReactNode }) {
         if (ct.bestExitPnlMax != null && pnl > ct.bestExitPnlMax) return false;
         if (ct.bestExitPctMin != null && pct < ct.bestExitPctMin) return false;
         if (ct.bestExitPctMax != null && pct > ct.bestExitPctMax) return false;
-        const { mfe, mae } = getTradeMfeMae(trade);
+        const { mfe, mae, fromExecutions } = getTradeMfeMae(trade);
+        if (ct.positionMaeMin != null || ct.positionMaeMax != null || ct.positionMfeMin != null || ct.positionMfeMax != null) {
+          if (!fromExecutions || !Number.isFinite(mfe) || !Number.isFinite(mae)) return false;
+        }
         if (ct.positionMaeMin != null && mae < ct.positionMaeMin) return false;
         if (ct.positionMaeMax != null && mae > ct.positionMaeMax) return false;
         if (ct.positionMfeMin != null && mfe < ct.positionMfeMin) return false;

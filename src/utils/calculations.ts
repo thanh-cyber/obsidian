@@ -1,16 +1,30 @@
 import { Trade, TradeStats } from "@/types/trade";
 import { getAppDateKey } from "@/utils/appDateTime";
 
-/** MFE = max favorable excursion ($), MAE = max adverse excursion ($). From executions when available. */
-export function getTradeMfeMae(trade: Trade): { mfe: number; mae: number } {
+/** MFE = max favorable excursion ($), MAE = max adverse excursion ($). Uses execution list when available. */
+export function getTradeMfeMae(trade: Trade): { mfe: number; mae: number; fromExecutions: boolean } {
   const list = trade.executionsList;
-  if (!list?.length) {
-    const pnl = Number(trade.pnl) || 0;
+  if (list?.length) {
+    return getTradeMfeMaeFromExecutions(list);
+  }
+  // No execution list: use trade-level entry/exit/pnl so imported trades still show MFE/MAE
+  const entry = Number(trade.entryPrice);
+  const exit = Number(trade.exitPrice);
+  const size = Number(trade.positionSize);
+  const pnl = Number(trade.pnl);
+  if (Number.isFinite(entry) && Number.isFinite(exit) && Number.isFinite(size)) {
     return {
       mfe: pnl > 0 ? pnl : 0,
       mae: pnl < 0 ? pnl : 0,
+      fromExecutions: false,
     };
   }
+  return { mfe: NaN, mae: NaN, fromExecutions: false };
+}
+
+function getTradeMfeMaeFromExecutions(
+  list: { dateTime: string; qty: number; price: number }[]
+): { mfe: number; mae: number; fromExecutions: boolean } {
   const sorted = [...list].sort(
     (a, b) => new Date(a.dateTime).getTime() - new Date(b.dateTime).getTime()
   );
@@ -30,10 +44,109 @@ export function getTradeMfeMae(trade: Trade): { mfe: number; mae: number } {
       if (unrealized < minUnrealized) minUnrealized = unrealized;
     }
   }
+
+  // With only 2 fills (entry + exit) we sample unrealized only at entry (= 0). Use entry vs exit PnL as MFE/MAE.
+  const noPathData = !Number.isFinite(maxUnrealized) || !Number.isFinite(minUnrealized);
+  if (noPathData && sorted.length >= 2) {
+    const first = sorted[0];
+    const last = sorted[sorted.length - 1];
+    const entryPrice = Number(first.price) || 0;
+    const exitPrice = Number(last.price) || 0;
+    const posAfterFirst = Number(first.qty) || 0;
+    const pnl = (exitPrice - entryPrice) * posAfterFirst; // long: (exit-entry)*qty; short: qty negative so (exit-entry)*neg = (entry-exit)*|qty|
+    return {
+      mfe: pnl > 0 ? pnl : 0,
+      mae: pnl < 0 ? pnl : 0,
+      fromExecutions: true,
+    };
+  }
+
   return {
     mfe: Number.isFinite(maxUnrealized) && maxUnrealized > 0 ? maxUnrealized : 0,
     mae: Number.isFinite(minUnrealized) && minUnrealized < 0 ? minUnrealized : 0,
+    fromExecutions: true,
   };
+}
+
+/** Chart bar format: [timeMs, open, high, low, close, volume] */
+export type ChartBar = [number, number, number, number, number, number];
+
+/**
+ * Build running P&L series for a trade. Uses bar data when provided for a smooth curve;
+ * otherwise uses execution points only. Each point is { timeMs, pnl } (unrealized or final P&L).
+ */
+export function getTradeRunningPnlSeries(
+  trade: Trade,
+  chartBars?: ChartBar[]
+): { timeMs: number; pnl: number }[] {
+  const list = trade.executionsList;
+  const entryTime = new Date(trade.entryDate).getTime();
+  const exitTime = new Date(trade.exitDate).getTime();
+  const finalPnl = Number(trade.pnl) || 0;
+
+  const sortedExecs = list?.length
+    ? [...list].sort((a, b) => new Date(a.dateTime).getTime() - new Date(b.dateTime).getTime())
+    : [];
+
+  function getPositionAndCostAt(timeMs: number): { position: number; cost: number } {
+    let position = 0;
+    let cost = 0;
+    for (const e of sortedExecs) {
+      const t = new Date(e.dateTime).getTime();
+      if (t > timeMs) break;
+      const qty = Number(e.qty) || 0;
+      const price = Number(e.price) || 0;
+      position += qty;
+      cost += price * qty;
+    }
+    return { position, cost };
+  }
+
+  if (chartBars?.length) {
+    const points: { timeMs: number; pnl: number }[] = [{ timeMs: entryTime, pnl: 0 }];
+    for (const bar of chartBars) {
+      const timeMs = bar[0];
+      const close = bar[4];
+      const { position, cost } = getPositionAndCostAt(timeMs);
+      if (position === 0) {
+        if (timeMs >= exitTime) points.push({ timeMs, pnl: finalPnl });
+        continue;
+      }
+      const avgEntry = cost / position;
+      const unrealized = (close - avgEntry) * position;
+      points.push({ timeMs, pnl: unrealized });
+    }
+    if (points.length === 1 || points[points.length - 1].timeMs < exitTime) {
+      points.push({ timeMs: exitTime, pnl: finalPnl });
+    }
+    return points.sort((a, b) => a.timeMs - b.timeMs);
+  }
+
+  const points: { timeMs: number; pnl: number }[] = [{ timeMs: entryTime, pnl: 0 }];
+  if (sortedExecs.length > 0) {
+    let position = 0;
+    let cost = 0;
+    for (const e of sortedExecs) {
+      const timeMs = new Date(e.dateTime).getTime();
+      const qty = Number(e.qty) || 0;
+      const price = Number(e.price) || 0;
+      position += qty;
+      cost += price * qty;
+      if (position !== 0) {
+        const avgEntry = cost / position;
+        const unrealized = (price - avgEntry) * position;
+        points.push({ timeMs, pnl: unrealized });
+      } else {
+        points.push({ timeMs, pnl: finalPnl });
+      }
+    }
+    if (points[points.length - 1].timeMs < exitTime) {
+      points.push({ timeMs: exitTime, pnl: finalPnl });
+    }
+  } else {
+    points.push({ timeMs: exitTime, pnl: finalPnl });
+  }
+  return points;
 }
 
 export const calculatePnL = (
@@ -66,13 +179,14 @@ export const calculateStats = (trades: Trade[]): TradeStats => {
     };
   }
 
-  const totalPnl = trades.reduce((sum, t) => sum + t.pnl, 0);
-  const wins = trades.filter(t => t.pnl > 0).length;
+  const totalPnl = trades.reduce((sum, t) => sum + (Number(t.pnl) || 0), 0);
+  const wins = trades.filter((t) => (Number(t.pnl) || 0) > 0).length;
   const winRate = (wins / trades.length) * 100;
   const averagePnl = totalPnl / trades.length;
-  const averageDuration = trades.reduce((sum, t) => sum + t.duration, 0) / trades.length;
-  const bestTrade = Math.max(...trades.map(t => t.pnl));
-  const worstTrade = Math.min(...trades.map(t => t.pnl));
+  const averageDuration = trades.reduce((sum, t) => sum + (Number(t.duration) || 0), 0) / trades.length;
+  const pnlValues = trades.map((t) => Number(t.pnl) || 0).filter((v) => Number.isFinite(v));
+  const bestTrade = pnlValues.length > 0 ? Math.max(...pnlValues) : 0;
+  const worstTrade = pnlValues.length > 0 ? Math.min(...pnlValues) : 0;
 
   // Max drawdown requires chronological order (by exit date)
   const sortedByDate = [...trades].sort(
@@ -82,8 +196,8 @@ export const calculateStats = (trades: Trade[]): TradeStats => {
   let maxDrawdown = 0;
   let runningTotal = 0;
 
-  sortedByDate.forEach(trade => {
-    runningTotal += trade.pnl;
+  sortedByDate.forEach((trade) => {
+    runningTotal += Number(trade.pnl) || 0;
     if (runningTotal > peak) {
       peak = runningTotal;
     }
@@ -162,13 +276,13 @@ export function getDailyStats(trades: Trade[]): Map<string, DailyDayStats> {
     const winPct = dayTrades.length > 0 ? (wins / dayTrades.length) * 100 : 0;
     const grossWins = dayTrades.filter((t) => t.pnl > 0).reduce((s, t) => s + t.pnl, 0);
     const grossLosses = dayTrades.filter((t) => t.pnl < 0).reduce((s, t) => s + -t.pnl, 0);
-    const profitFactor = grossLosses > 0 ? grossWins / grossLosses : grossWins > 0 ? Infinity : 0;
+    const profitFactor = grossLosses > 0 ? grossWins / grossLosses : grossWins > 0 ? Number.MAX_SAFE_INTEGER : 0;
     let mfe = 0;
     let mae = 0;
     dayTrades.forEach((t) => {
       const { mfe: tmfe, mae: tmae } = getTradeMfeMae(t);
-      mfe += tmfe;
-      mae += tmae;
+      if (Number.isFinite(tmfe)) mfe += tmfe;
+      if (Number.isFinite(tmae)) mae += tmae;
     });
     result.set(dateKey, {
       returnDollar,
@@ -272,6 +386,75 @@ export interface OverviewStats {
  * accReturnPct is null when total notional (for scaling) would be zero.
  */
 export const getOverviewStats = (trades: Trade[]): OverviewStats => {
+  if (trades.length === 0) {
+    return {
+      returnDollar: 0,
+      accReturnGross: 0,
+      accReturnNet: 0,
+      dailyReturnDollar: 0,
+      returnOnWinners: 0,
+      returnOnLosers: 0,
+      returnOnLong: 0,
+      returnOnShort: 0,
+      biggestProfit: 0,
+      biggestLoss: 0,
+      profitLossRatio: 0,
+      tradeExpectancy: 0,
+      profitFactor: 0,
+      accountBalance: 0,
+      totComShort: 0,
+      totComBE: 0,
+      totComLong: 0,
+      totCom: 0,
+      winPct: 0,
+      lossPct: 0,
+      breakEvenPct: 0,
+      openPct: 0,
+      accReturnPct: null,
+      biggestPctProfit: 0,
+      biggestPctLoser: 0,
+      returnPerShare: 0,
+      pnlStdDev: 0,
+      pnlStdDevW: 0,
+      pnlStdDevL: 0,
+      sqn: 0,
+      avgReturn: 0,
+      returnPerSize: 0,
+      avgOnWinners: 0,
+      avgOnLosers: 0,
+      avgDailyPnl: 0,
+      avgReturnPct: 0,
+      avgPctOnWinners: 0,
+      avgPctOnLosers: 0,
+      avgPctOnLong: 0,
+      avgPctOnShort: 0,
+      avgPositionMfe: 0,
+      avgPositionMae: 0,
+      totalTrades: 0,
+      totalWinner: 0,
+      totalOpenTrades: 0,
+      totClosedTrades: 0,
+      totalLosers: 0,
+      totalBE: 0,
+      maxConsecLoss: 0,
+      maxConsecWin: 0,
+      totalShares: 0,
+      avgWinHoldTime: 0,
+      avgLossHoldTime: 0,
+      avgBEHoldTime: 0,
+      avgHoldTime: 0,
+      totalCommissions: 0,
+      totalFees: 0,
+      totalSwap: 0,
+      avgCommissions: 0,
+      avgFees: 0,
+      totComWin: 0,
+      totComLoss: 0,
+      kellyCriterion: 0,
+      cumulativeData: [],
+    };
+  }
+
   const dailyPnL = getDailyPnL(trades);
   const stats = calculateStats(trades);
   const totalFees = getTotalFees(trades);
@@ -286,8 +469,8 @@ export const getOverviewStats = (trades: Trade[]): OverviewStats => {
   const avgLoss = losses.length > 0 ? returnOnLosers / losses.length : 0;
 
   const profitFactor =
-    returnOnLosers !== 0 ? Math.abs(returnOnWinners / returnOnLosers) : (returnOnWinners > 0 ? Infinity : 0);
-  const profitLossRatio = avgLoss !== 0 ? Math.abs(avgWin / avgLoss) : (avgWin > 0 ? Infinity : 0);
+    returnOnLosers !== 0 ? Math.abs(returnOnWinners / returnOnLosers) : (returnOnWinners > 0 ? Number.MAX_SAFE_INTEGER : 0);
+  const profitLossRatio = avgLoss !== 0 ? Math.abs(avgWin / avgLoss) : (avgWin > 0 ? Number.MAX_SAFE_INTEGER : 0);
 
   const returnOnLong = trades.filter((t) => t.positionSize > 0).reduce((s, t) => s + t.pnl, 0);
   const returnOnShort = trades.filter((t) => t.positionSize < 0).reduce((s, t) => s + t.pnl, 0);
@@ -303,10 +486,13 @@ export const getOverviewStats = (trades: Trade[]): OverviewStats => {
   const winPct = trades.length > 0 ? (wins.length / trades.length) * 100 : 0;
   const lossPct = trades.length > 0 ? (losses.length / trades.length) * 100 : 0;
 
-  const totalShares = trades.reduce((s, t) => s + Math.abs(t.positionSize), 0);
+  const totalShares = trades.reduce((s, t) => s + Math.abs(Number(t.positionSize) || 0), 0);
   const returnPerShare = totalShares > 0 ? gross / totalShares : 0;
 
-  const totalNotional = trades.reduce((s, t) => s + Math.abs(t.entryPrice * t.positionSize), 0);
+  const totalNotional = trades.reduce(
+    (s, t) => s + Math.abs((Number(t.entryPrice) || 0) * (Number(t.positionSize) || 0)),
+    0
+  );
   const returnPerSize = totalNotional > 0 ? gross / totalNotional : 0;
 
   const pnlPcts = trades.map((t) => t.pnlPercentage ?? 0);
@@ -315,8 +501,8 @@ export const getOverviewStats = (trades: Trade[]): OverviewStats => {
     wins.length > 0 ? wins.reduce((s, t) => s + (t.pnlPercentage ?? 0), 0) / wins.length : 0;
   const avgPctOnLosers =
     losses.length > 0 ? losses.reduce((s, t) => s + (t.pnlPercentage ?? 0), 0) / losses.length : 0;
-  const longTrades = trades.filter((t) => t.positionSize > 0);
-  const shortTrades = trades.filter((t) => t.positionSize < 0);
+  const longTrades = trades.filter((t) => (Number(t.positionSize) || 0) > 0);
+  const shortTrades = trades.filter((t) => (Number(t.positionSize) || 0) < 0);
   const avgPctOnLong = longTrades.length > 0 ? longTrades.reduce((s, t) => s + (t.pnlPercentage ?? 0), 0) / longTrades.length : 0;
   const avgPctOnShort = shortTrades.length > 0 ? shortTrades.reduce((s, t) => s + (t.pnlPercentage ?? 0), 0) / shortTrades.length : 0;
 

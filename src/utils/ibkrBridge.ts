@@ -30,11 +30,15 @@ export function setIbkrAutoSyncEnabled(enabled: boolean): void {
 export async function testIbkrBridge(
   baseUrl: string
 ): Promise<{ ok: boolean; status?: BridgeStatus }> {
-  const res = await fetch(`${baseUrl.replace(/\/+$/, "")}/health`, { method: "GET" });
-  if (!res.ok) return { ok: false };
-  const json = await res.json().catch(() => null);
-  const parsed = StatusSchema.safeParse(json?.status);
-  return { ok: true, status: parsed.success ? parsed.data : undefined };
+  try {
+    const res = await fetch(`${baseUrl.replace(/\/+$/, "")}/health`, { method: "GET" });
+    if (!res.ok) return { ok: false };
+    const json = await res.json().catch(() => null);
+    const parsed = StatusSchema.safeParse(json?.status);
+    return { ok: true, status: parsed.success ? parsed.data : undefined };
+  } catch {
+    return { ok: false };
+  }
 }
 
 const StatusSchema = z.object({
@@ -171,11 +175,10 @@ export function mergeTradesById(existing: Trade[], incoming: Trade[]): Trade[] {
   for (const t of incoming) {
     const existingTrade = byId.get(t.id);
     const merged: Trade = { ...t };
-    // Keep existing executionsList if incoming has none (e.g. CSV had 11 fills, IBKR sync has no fills)
-    if (
-      existingTrade?.executionsList?.length &&
-      (!merged.executionsList || merged.executionsList.length === 0)
-    ) {
+    // Prefer existing executionsList when it has more fills (CSV/broker import) vs incoming (IBKR often has fewer)
+    const existingCount = existingTrade?.executionsList?.length ?? 0;
+    const incomingCount = merged.executionsList?.length ?? 0;
+    if (existingCount > incomingCount && existingTrade?.executionsList) {
       merged.executionsList = existingTrade.executionsList;
       merged.executions = existingTrade.executions ?? existingTrade.executionsList.length;
     }

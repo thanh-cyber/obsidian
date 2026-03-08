@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Merge stock data into trades</title>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; max-width: 480px; margin: 2rem auto; padding: 0 1rem; }
+    h1 { font-size: 1.25rem; margin-bottom: 0.5rem; }
+    p { color: #555; font-size: 0.9rem; margin: 0 0 1rem; }
+    label { display: block; font-weight: 600; margin-bottom: 0.35rem; }
+    input[type="file"] { margin-bottom: 1rem; width: 100%; }
+    button { background: #0f172a; color: #fff; border: none; padding: 0.6rem 1.2rem; font-size: 1rem; border-radius: 6px; cursor: pointer; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .status { margin-top: 1rem; font-size: 0.9rem; }
+    .success { color: #059669; }
+    .error { color: #dc2626; }
+  </style>
+</head>
+<body>
+  <h1>Merge stock data into trades</h1>
+  <p>1) In the app: Settings → Export as JSON (save the file).<br>
+  2) Choose that JSON and your Excel file below, then click Merge.<br>
+  3) In the app: Settings → Import Trades → select the downloaded file.</p>
+  <label>Trades (JSON exported from app)</label>
+  <input type="file" id="tradesFile" accept=".json" />
+  <label>Stock data (Excel, e.g. Final Output.xlsx)</label>
+  <input type="file" id="excelFile" accept=".xlsx,.xls" />
+  <button type="button" id="mergeBtn" disabled>Merge &amp; download</button>
+  <div id="status" class="status"></div>
+
+  <script>
+(function () {
+  const APP_TZ = "America/New_York";
+  function getAppDateKey(date) {
+    const p = new Intl.DateTimeFormat("en-US", {
+      year: "numeric", month: "2-digit", day: "2-digit", timeZone: APP_TZ
+    }).formatToParts(date);
+    const get = (type) => p.find((x) => x.type === type)?.value ?? "";
+    return get("year") + "-" + get("month") + "-" + get("day");
+  }
+  function normHeader(h) {
+    return String(h ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+  }
+  function toNum(val) {
+    if (val == null) return undefined;
+    if (typeof val === "number" && Number.isFinite(val)) return val;
+    let s = String(val).replace(/,/g, "").trim().toUpperCase();
+    const mult = s.endsWith("B") ? 1e9 : s.endsWith("M") ? 1e6 : s.endsWith("K") ? 1e3 : 1;
+    if (mult !== 1) s = s.slice(0, -1).trim();
+    const n = parseFloat(s);
+    return Number.isFinite(n) ? n * mult : undefined;
+  }
+  function parseDateToKey(val) {
+    if (val == null) return null;
+    var date;
+    if (typeof val === "number" && Number.isFinite(val)) {
+      date = new Date((val - 25569) * 86400 * 1000);
+    } else {
+      date = new Date(String(val).trim());
+    }
+    if (!Number.isFinite(date.getTime())) return null;
+    return getAppDateKey(date);
+  }
+  function parseStockDataFromWorkbook(workbook) {
+    var sheetName = workbook.SheetNames[0];
+    if (!sheetName) return [];
+    var sheet = workbook.Sheets[sheetName];
+    var json = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+    if (!json.length) return [];
+    var rawKeys = Object.keys(json[0] || {});
+    var headers = rawKeys.map(normHeader);
+    function idx(names) {
+      var i = headers.findIndex(function(h) {
+        return names.some(function(n) { return h.indexOf(n) !== -1 || n.indexOf(h) !== -1; });
+      });
+      return i >= 0 ? rawKeys[i] : null;
+    }
+    var symbolKey = idx(["symbol", "ticker", "tickers"]);
+    var dateKey = idx(["date", "trade date", "exit date"]);
+    var floatKey = idx(["float", "float shares", "share float"]);
+    var marketCapKey = idx(["total day mcap", "market cap", "marketcap", "mkt cap", "mcap", "cap"]);
+    var outstandingKey = idx(["outstanding", "outstanding shares", "shares outstanding", "shares out"]);
+    var rows = [];
+    for (var i = 0; i < json.length; i++) {
+      var row = json[i];
+      var sym = symbolKey ? String(row[symbolKey] ?? "").trim().toUpperCase() : "";
+      var dKey = dateKey ? parseDateToKey(row[dateKey]) : null;
+      if (!sym || !dKey) continue;
+      var float = floatKey ? toNum(row[floatKey]) : undefined;
+      var marketCap = marketCapKey ? toNum(row[marketCapKey]) : undefined;
+      var outstandingShares = outstandingKey ? toNum(row[outstandingKey]) : undefined;
+      if (float === undefined && marketCap === undefined && outstandingShares === undefined) continue;
+      rows.push({ symbol: sym, dateKey: dKey, float: float, marketCap: marketCap, outstandingShares: outstandingShares });
+    }
+    return rows;
+  }
+  function lookupKey(symbol, dateKey) {
+    return String(symbol).trim().toUpperCase() + "|" + dateKey;
+  }
+  function mergeStockDataIntoTrades(trades, rows) {
+    var map = {};
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      map[lookupKey(r.symbol, r.dateKey)] = r;
+    }
+    return trades.map(function(t) {
+      var dateKey = getAppDateKey(new Date(t.exitDate));
+      var row = map[lookupKey(t.symbol, dateKey)];
+      if (!row) return t;
+      return {
+        ...t,
+        float: row.float !== undefined ? row.float : t.float,
+        marketCap: row.marketCap !== undefined ? row.marketCap : t.marketCap,
+        outstandingShares: row.outstandingShares !== undefined ? row.outstandingShares : t.outstandingShares
+      };
+    });
+  }
+
+  var tradesInput = document.getElementById("tradesFile");
+  var excelInput = document.getElementById("excelFile");
+  var mergeBtn = document.getElementById("mergeBtn");
+  var statusEl = document.getElementById("status");
+
+  function setStatus(msg, isError) {
+    statusEl.textContent = msg;
+    statusEl.className = "status " + (isError ? "error" : "success");
+  }
+  function enableMerge() {
+    mergeBtn.disabled = !(tradesInput.files && tradesInput.files[0] && excelInput.files && excelInput.files[0]);
+  }
+  tradesInput.addEventListener("change", enableMerge);
+  excelInput.addEventListener("change", enableMerge);
+
+  mergeBtn.addEventListener("click", function() {
+    var tradesFile = tradesInput.files[0];
+    var excelFile = excelInput.files[0];
+    if (!tradesFile || !excelFile) return;
+    setStatus("Reading…", false);
+    var fr = new FileReader();
+    fr.onload = function() {
+      var trades;
+      try {
+        trades = JSON.parse(fr.result);
+      } catch (e) {
+        setStatus("Invalid trades JSON: " + e.message, true);
+        return;
+      }
+      if (!Array.isArray(trades)) {
+        setStatus("Trades file must be a JSON array.", true);
+        return;
+      }
+      var fr2 = new FileReader();
+      fr2.onload = function() {
+        var wb;
+        try {
+          wb = XLSX.read(fr2.result, { type: "array" });
+        } catch (e) {
+          setStatus("Could not read Excel: " + e.message, true);
+          return;
+        }
+        var rows = parseStockDataFromWorkbook(wb);
+        var merged = mergeStockDataIntoTrades(trades, rows);
+        var updated = 0;
+        for (var i = 0; i < trades.length; i++) {
+          var a = trades[i], b = merged[i];
+          if ((b.float !== undefined && b.float !== a.float) ||
+              (b.marketCap !== undefined && b.marketCap !== a.marketCap) ||
+              (b.outstandingShares !== undefined && b.outstandingShares !== a.outstandingShares))
+            updated++;
+        }
+        var blob = new Blob([JSON.stringify(merged, null, 2)], { type: "application/json" });
+        var a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = "merged-trades.json";
+        a.click();
+        URL.revokeObjectURL(a.href);
+        setStatus("Done. " + rows.length + " rows from Excel → " + updated + " trades updated. Import merged-trades.json in the app.", false);
+      };
+      fr2.readAsArrayBuffer(excelFile);
+    };
+    fr.readAsText(tradesFile);
+  });
+})();
+  </script>
+</body>
+</html>
